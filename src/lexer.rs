@@ -1,19 +1,20 @@
-use std::str;
-use std::str::{Chars};
-use std::string::String;
+
+extern crate test;
+
+use std::str::Chars;
 use self::TokenKind::*;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Token {
-    pub kind: TokenKind,
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct Token<'a> {
+    pub kind: TokenKind<'a>,
     pub len: usize,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TokenKind {
-    Identifier(String),
-    Numerical(String),
-    String(String),
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TokenKind<'a> {
+    Identifier(&'a str),
+    Numerical(&'a str),
+    String(&'a str),
 
     // One-char tokens:
     /// ";"
@@ -80,7 +81,7 @@ pub enum TokenKind {
 ///
 /// Next characters can be peeked via `first` method,
 /// and position can be shifted forward via `bump` method.
-pub(crate) struct Tokenizer <'a> {
+pub(crate) struct Tokenizer<'a> {
     pos: usize,
     input: &'a str,
     /// Iterator over chars. Slightly faster than a &str.
@@ -88,65 +89,24 @@ pub(crate) struct Tokenizer <'a> {
 }
 
 
-impl<'a> Tokenizer<'a> {
-    pub(crate) fn new(input: &'a str) -> Tokenizer<'a> {
+impl<'a> Tokenizer<'_> {
+    pub(crate) fn new(input: &str) -> Tokenizer {
         Tokenizer {
             pos: 0,
-            input: input,
+            input,
             chars: input.chars(),
         }
     }
-
-    /// Peeks the next symbol from the input stream without consuming it.
-    /// If requested position doesn't exist, `EOF_CHAR` is returned.
-    /// However, getting `EOF_CHAR` doesn't always mean actual end of file,
-    /// it should be checked with `is_eof` method.
-    pub(crate) fn first(&self) -> Option<char> {
-        // `.next()` optimizes better than `.nth(0)`
-        self.chars.clone().next()
-    }
-
-    /// Checks if there is nothing more to consume.
-    pub(crate) fn is_eof(&self) -> bool {
-        self.offset() >= self.input.len()
-    }
-
-    /// Moves to the next character.
-    pub(crate) fn bump(&mut self) -> Option<char> {
-        let c = self.chars.next()?;
-        self.pos += c.len_utf8();
-        Some(c)
-    }
-
-    /// Returns current offset into the source file
-    pub(crate) fn offset(&self) -> usize {
-        self.pos
-    }
-
-    /// Takes a string slice from and to given offsets, respectively
-    pub(crate) fn read_str(&self, from: usize, to: usize) -> &str {
-        &self.input[from..to]
-    }
-
-    /// Eats symbols while predicate returns true or until the end of file is reached.
-    pub(crate) fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
-        // It was tried making optimized version of this for eg. line comments, but
-        // LLVM can inline all of this and compile it down to fast iteration over bytes.
-        while !self.is_eof() && predicate(self.first().unwrap()) {
-            self.bump();
-        }
-    }
-
 }
 
-impl Token {
+impl<'a> Token<'_> {
     fn new(kind: TokenKind, len: usize) -> Token {
         Token { kind, len }
     }
 }
 
 impl <'a> Iterator for Tokenizer<'a> {
-    type Item = Token;
+    type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.offset();
@@ -156,13 +116,13 @@ impl <'a> Iterator for Tokenizer<'a> {
             c if c.is_alphabetic() || c == '_' => {
                 // first char must be alphaetic, but consecutive chars can have integers
                 self.skip_while(|c| c.is_alphanumeric() || c == '_');
-                Identifier(self.read_str(start, self.offset()).to_string())
+                Identifier(self.read_str(start, self.offset()))
             },
 
             // Integers & Floats
             '0'..='9' => {
                 self.skip_while(|c| c.is_digit(10) || c == '.');
-                let strval = self.read_str(start, self.offset()).to_string();
+                let strval = self.read_str(start, self.offset());
                 Numerical(strval)
             }
 
@@ -170,7 +130,7 @@ impl <'a> Iterator for Tokenizer<'a> {
             '"' => {
                 self.skip_while(|c| c != '"');
                 self.bump();
-                String(self.read_str(start+1, self.offset() - 1).to_string())
+                String(self.read_str(start+1, self.offset() - 1))
             }
 
             // Whitespace (skipped)
@@ -211,6 +171,50 @@ impl <'a> Iterator for Tokenizer<'a> {
     }
 }
 
+
+impl<'a> Tokenizer<'a> {
+    /// Peeks the next symbol from the input stream without consuming it.
+    /// If requested position doesn't exist, `EOF_CHAR` is returned.
+    /// However, getting `EOF_CHAR` doesn't always mean actual end of file,
+    /// it should be checked with `is_eof` method.
+    pub(crate) fn first(&self) -> Option<char> {
+        // `.next()` optimizes better than `.nth(0)`
+        self.chars.clone().next()
+    }
+
+    /// Checks if there is nothing more to consume.
+    pub(crate) fn is_eof(&self) -> bool {
+        self.offset() >= self.input.len()
+    }
+
+    /// Moves to the next character.
+    pub(crate) fn bump(&mut self) -> Option<char> {
+        let c = self.chars.next()?;
+        self.pos += c.len_utf8();
+        Some(c)
+    }
+
+    /// Returns current offset into the source file
+    pub(crate) fn offset(&self) -> usize {
+        self.pos
+    }
+
+    /// Takes a string slice from and to given offsets, respectively
+    pub(crate) fn read_str(&self, from: usize, to: usize) -> &'a str {
+        &self.input[from..to]
+    }
+
+    /// Eats symbols while predicate returns true or until the end of file is reached.
+    pub(crate) fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
+        // It was tried making optimized version of this for eg. line comments, but
+        // LLVM can inline all of this and compile it down to fast iteration over bytes.
+        while !self.is_eof() && predicate(self.first().unwrap()) {
+            self.bump();
+        }
+    }
+
+}
+
 /// True if `c` is considered a whitespace according to Rust language definition.
 /// See [Rust language reference](https://doc.rust-lang.org/reference/whitespace.html)
 /// for definitions of these classes.
@@ -245,18 +249,28 @@ pub fn is_whitespace(c: char) -> bool {
 
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
+    use test::Bencher;
 
     #[test]
     fn test_lexing() {
         let mut tokenizer = Tokenizer::new("let foobar = 5;");
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("let".to_string()), len: 3}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("foobar".to_string()), len: 6}));
+        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("let"), len: 3}));
+        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("foobar"), len: 6}));
         assert_eq!(tokenizer.next(), Some(Token{ kind: Eq, len: 1}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Numerical("5".to_string()), len: 1}));
+        assert_eq!(tokenizer.next(), Some(Token{ kind: Numerical("5"), len: 1}));
         assert_eq!(tokenizer.next(), Some(Token{ kind: Semi, len: 1}));
         assert_eq!(tokenizer.next(), None);
         assert_eq!(tokenizer.next(), None);
+    }
+
+    #[bench]
+    fn bench_tokenizer(b: &mut Bencher) {
+        let input = std::fs::read_to_string("./examples/cargo-sample.rs").unwrap();
+        b.iter(|| {
+            let v = Tokenizer::new(&input).collect::<Vec<Token>>();
+            
+        });
     }
 }

@@ -63,7 +63,7 @@ pub enum Precedence {
     Index,
 }
 
-impl From<Token> for Precedence {
+impl From<Token<'_>> for Precedence {
     fn from(t: Token) -> Self {
         match t.kind {
             // TODO! Add Neq
@@ -97,7 +97,7 @@ impl Precedence {
     }
 }
 
-impl From<&Token> for Operator {
+impl From<&Token<'_>> for Operator {
     fn from(value: &Token) -> Self {
         match value.kind {
             TokenKind::Plus => Operator::Add,
@@ -114,8 +114,8 @@ impl From<&Token> for Operator {
 
 struct Parser <'a> {
     tokenizer: Tokenizer<'a>,
-    current: Token,
-    next: Token,
+    current: Token<'a>,
+    next: Token<'a>,
 }
 
 impl <'a> Parser <'a> {
@@ -130,7 +130,7 @@ impl <'a> Parser <'a> {
     }
 
     fn advance(&mut self) {
-        self.current = self.next.clone();
+        self.current = self.next;
         self.next = self.tokenizer.next().unwrap_or(Token{ kind: TokenKind::EOF, len: 0 });
     }
 
@@ -142,7 +142,7 @@ impl <'a> Parser <'a> {
         return Box::new(Expression::Infix { 
             left,
             operator: operator, 
-            right: self.expression(Precedence::from_token(&self.next)) 
+            right: self.expression(Precedence::from_token(&self.current)) 
         })
     }
 
@@ -157,11 +157,11 @@ impl <'a> Parser <'a> {
         // keep going
         while self.next.kind != TokenKind::Semi && precedence < Precedence::from_token(&self.next) {
             left = match self.next.kind {
-                TokenKind::Plus => self.infix_expression(left),
+                TokenKind::Lt | TokenKind::Gt => self.infix_expression(left),
+                TokenKind::Plus | TokenKind::Minus => self.infix_expression(left),
+                TokenKind::Slash | TokenKind::Star => self.infix_expression(left),
                 _ => return left,
             };
-
-            self.advance();
         }
        
 
@@ -183,7 +183,25 @@ fn eval(expr: &Expression) -> MyObject {
             match operator {
                 Operator::Add => {
                     match (left, right) {
-                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a+b),
+                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a + b),
+                        _ => todo!(),
+                    }
+                },
+                Operator::Subtract => {
+                    match (left, right) {
+                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a - b),
+                        _ => todo!(),
+                    }
+                },
+                Operator::Multiply => {
+                    match (left, right) {
+                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a * b),
+                        _ => todo!(),
+                    }
+                },
+                Operator::Divide => {
+                    match (left, right) {
+                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a / b),
                         _ => todo!(),
                     }
                 },
@@ -218,8 +236,10 @@ mod test {
 
     #[test]
     fn test_eval() {
-        let ast = parse("5+1");
-        let result = eval(&ast);
-        assert_eq!(result, MyObject::Int(6));
+        assert_eq!(eval(&parse("5+1")), MyObject::Int(6));
+        assert_eq!(eval(&parse("5*2")), MyObject::Int(10));
+        assert_eq!(eval(&parse("5/5")), MyObject::Int(1));
+        assert_eq!(eval(&parse("5-5")), MyObject::Int(0));
+        assert_eq!(eval(&parse("1 + 5 * 2")), MyObject::Int(11));
     }
 }
