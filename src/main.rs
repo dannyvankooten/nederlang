@@ -1,28 +1,30 @@
 #![feature(test)]
 
-use std::io;
+mod eval;
 mod lexer;
+mod object;
 mod parser;
 
-fn main() -> io::Result<()> {
-    let input = std::fs::read_to_string("./examples/cargo-sample.rs").unwrap();
-    let v = lexer::Tokenizer::new(&input).collect::<Vec<lexer::Token>>();
-    println!("{:?}", v);
+use object::NlObject;
+use std::io;
 
-    // loop {
-    //     buffer.clear();
-    //     io::stdin().read_line(&mut buffer)?;
-    //     println!("Input: {buffer}");
-    //     let mut tokenizer = lexer::Tokenizer::new(&buffer);
-    //     loop {
-    //         let tok = tokenizer.next();
-    //         if tok.is_none() {
-    //             break;
-    //         }
-    //         let tok = tok.unwrap();
-    //         println!("{:?}", tok);
-    //     }
-    // }
-    
+fn run(program: &str) -> NlObject {
+    let ast = parser::parse(program);
+    eval::eval(&ast)
+}
+
+fn main() -> io::Result<()> {
+    let mut buffer = String::with_capacity(512);
+
+    loop {
+        buffer.clear();
+        io::stdin().read_line(&mut buffer)?;
+        println!("In: {:?}", buffer.trim());
+
+        let obj = run(&buffer);
+        println!("Out: {:?}", obj);
+        println!("");
+    }
+
     Ok(())
 }

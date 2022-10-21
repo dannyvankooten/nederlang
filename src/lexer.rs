@@ -1,22 +1,60 @@
-
 extern crate test;
 
+use self::Token::*;
 use std::str::Chars;
-use self::TokenKind::*;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub struct Token<'a> {
-    pub kind: TokenKind<'a>,
-    pub len: usize,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TokenKind<'a> {
+pub(crate) enum Token<'a> {
     Identifier(&'a str),
     Numerical(&'a str),
     String(&'a str),
 
+    // Keywords
+    /// "als"
+    If,
+    /// "zoniet"
+    Else,
+    /// "antwoord"
+    Return,
+    /// "functie"
+    Func,
+    /// "zolang"
+    While,
+    /// "en"
+    And,
+    /// "of"
+    Or,
+    /// "voorelk"
+    Foreach,
+    /// "stel"
+    Declare,
+    /// "waar"
+    True,
+    /// "onwaar"
+    False,
+
+    // Multi-char tokens:
+    /// "<="
+    Lte,
+    /// ">="
+    Gte,
+    /// "=="
+    Eq,
+    /// "!="
+    Neq,
+    // TODO! Tokenize these separately? Or leave it up to parser?
+    // /// "+="
+    // PlusAssign,
+    // /// "-="
+    // MinusAssign,
+    // /// "*="
+    // MultiplyAssign,
+    // /// "/="
+    // DivideAssign,
+
     // One-char tokens:
+    /// "="
+    Assign,
     /// ";"
     Semi,
     /// ","
@@ -35,20 +73,6 @@ pub enum TokenKind<'a> {
     OpenBracket,
     /// "]"
     CloseBracket,
-    /// "@"
-    At,
-    /// "#"
-    Pound,
-    /// "~"
-    Tilde,
-    /// "?"
-    Question,
-    /// ":"
-    Colon,
-    /// "$"
-    Dollar,
-    /// "="
-    Eq,
     /// "!"
     Bang,
     /// "<"
@@ -57,10 +81,6 @@ pub enum TokenKind<'a> {
     Gt,
     /// "-"
     Minus,
-    /// "&"
-    And,
-    /// "|"
-    Or,
     /// "+"
     Plus,
     /// "*"
@@ -73,8 +93,7 @@ pub enum TokenKind<'a> {
     Percent,
 
     /// Unknown token, not expected by the lexer, e.g. "№"
-    Unknown,
-    EOF,
+    Illegal,
 }
 
 /// Peekable iterator over a char sequence.
@@ -88,8 +107,7 @@ pub(crate) struct Tokenizer<'a> {
     chars: Chars<'a>,
 }
 
-
-impl<'a> Tokenizer<'_> {
+impl<'a> Tokenizer<'a> {
     pub(crate) fn new(input: &str) -> Tokenizer {
         Tokenizer {
             pos: 0,
@@ -97,87 +115,9 @@ impl<'a> Tokenizer<'_> {
             chars: input.chars(),
         }
     }
-}
 
-impl<'a> Token<'_> {
-    fn new(kind: TokenKind, len: usize) -> Token {
-        Token { kind, len }
-    }
-}
-
-impl <'a> Iterator for Tokenizer<'a> {
-    type Item = Token<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let start = self.offset();
-        let first_char = self.bump()?;
-        let token_kind = match first_char {
-            // Identifiers
-            c if c.is_alphabetic() || c == '_' => {
-                // first char must be alphaetic, but consecutive chars can have integers
-                self.skip_while(|c| c.is_alphanumeric() || c == '_');
-                Identifier(self.read_str(start, self.offset()))
-            },
-
-            // Integers & Floats
-            '0'..='9' => {
-                self.skip_while(|c| c.is_digit(10) || c == '.');
-                let strval = self.read_str(start, self.offset());
-                Numerical(strval)
-            }
-
-            // String values
-            '"' => {
-                self.skip_while(|c| c != '"');
-                self.bump();
-                String(self.read_str(start+1, self.offset() - 1))
-            }
-
-            // Whitespace (skipped)
-            c if is_whitespace(c) => return self.next(),
-
-            // One-symbol tokens.
-            ';' => Semi,
-            ',' => Comma,
-            '.' => Dot,
-            '(' => OpenParen,
-            ')' => CloseParen,
-            '{' => OpenBrace,
-            '}' => CloseBrace,
-            '[' => OpenBracket,
-            ']' => CloseBracket,
-            '@' => At,
-            '#' => Pound,
-            '~' => Tilde,
-            '?' => Question,
-            ':' => Colon,
-            '$' => Dollar,
-            '=' => Eq,
-            '!' => Bang,
-            '<' => Lt,
-            '>' => Gt,
-            '-' => Minus,
-            '&' => And,
-            '|' => Or,
-            '+' => Plus,
-            '*' => Star,
-            '^' => Caret,
-            '%' => Percent,
-            '/' => Slash,
-            _ => TokenKind::Unknown,
-        };
-
-        Some(Token::new(token_kind, self.offset() - start))
-    }
-}
-
-
-impl<'a> Tokenizer<'a> {
-    /// Peeks the next symbol from the input stream without consuming it.
-    /// If requested position doesn't exist, `EOF_CHAR` is returned.
-    /// However, getting `EOF_CHAR` doesn't always mean actual end of file,
-    /// it should be checked with `is_eof` method.
-    pub(crate) fn first(&self) -> Option<char> {
+    /// Peeks the next char from the input stream without consuming it.
+    pub(crate) fn peek(&self) -> Option<char> {
         // `.next()` optimizes better than `.nth(0)`
         self.chars.clone().next()
     }
@@ -208,11 +148,123 @@ impl<'a> Tokenizer<'a> {
     pub(crate) fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
         // It was tried making optimized version of this for eg. line comments, but
         // LLVM can inline all of this and compile it down to fast iteration over bytes.
-        while !self.is_eof() && predicate(self.first().unwrap()) {
+        while !self.is_eof() && predicate(self.peek().unwrap()) {
             self.bump();
         }
     }
+}
 
+impl<'a> From<&'a str> for Token<'a> {
+    fn from(value: &'a str) -> Self {
+        match value {
+            "als" => If,
+            "of" => Or,
+            "antwoord" => Return,
+            "voorelk" => Foreach,
+            "zolang" => While,
+            "anders" => Else,
+            "functie" => Func,
+            "stel" => Declare,
+            "en" => And,
+            "ja" => True,
+            "nee" => False,
+            _ => Identifier(value),
+        }
+    }
+}
+
+impl<'a> Iterator for Tokenizer<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = self.offset();
+        let token = match self.bump()? {
+            // Identifiers
+            c if c.is_alphabetic() || c == '_' => {
+                // first char must be alphabetic, but consecutive chars can have integers
+                self.skip_while(|c| c.is_alphanumeric() || c == '_');
+                let ident = self.read_str(start, self.offset());
+                ident.into()
+            }
+
+            // Integers & Floats
+            // TODO! Negative numericals? Or leave it as prefix expression for parser?
+            '0'..='9' => {
+                self.skip_while(|c| c.is_digit(10) || c == '.');
+                let strval = self.read_str(start, self.offset());
+                Numerical(strval)
+            }
+
+            // String values
+            '"' => {
+                self.skip_while(|c| c != '"');
+                self.bump();
+                String(self.read_str(start + 1, self.offset() - 1))
+            }
+
+            // Whitespace (skipped, because insignificant)
+            c if is_whitespace(c) => return self.next(),
+
+            // Multi-char tokens:
+            '=' => {
+                if self.peek() == Some('=') {
+                    Eq
+                } else {
+                    Assign
+                }
+            }
+            '!' => {
+                if self.peek() == Some('=') {
+                    Neq
+                } else {
+                    Bang
+                }
+            }
+            '<' => {
+                if self.peek() == Some('=') {
+                    Lte
+                } else {
+                    Lt
+                }
+            }
+            '>' => {
+                if self.peek() == Some('=') {
+                    Gte
+                } else {
+                    Gt
+                }
+            }
+
+            // One-symbol tokens.
+            ';' => Semi,
+            ',' => Comma,
+            '.' => Dot,
+            '(' => OpenParen,
+            ')' => CloseParen,
+            '{' => OpenBrace,
+            '}' => CloseBrace,
+            '[' => OpenBracket,
+            ']' => CloseBracket,
+            '-' => Minus,
+            '+' => Plus,
+            '*' => Star,
+            '^' => Caret,
+            '%' => Percent,
+            '/' => Slash,
+
+            // Unknown / illegal tokens
+            _ => Illegal,
+        };
+
+        // If we parsed a multi-char token,
+        // bump iterator appropriate number of times
+        match token {
+            Eq | Neq | Gte | Lte => self.bump(),
+            _ => None,
+        };
+
+        Some(token)
+    }
 }
 
 /// True if `c` is considered a whitespace according to Rust language definition.
@@ -247,30 +299,120 @@ pub fn is_whitespace(c: char) -> bool {
     )
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use test::Bencher;
 
     #[test]
-    fn test_lexing() {
-        let mut tokenizer = Tokenizer::new("let foobar = 5;");
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("let"), len: 3}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Identifier("foobar"), len: 6}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Eq, len: 1}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Numerical("5"), len: 1}));
-        assert_eq!(tokenizer.next(), Some(Token{ kind: Semi, len: 1}));
+    fn ints() {
+        for (input, expected) in [
+            ("5", vec![Numerical("5")]),
+            ("-5", vec![Minus, Numerical("5")]),
+        ] {
+            let tokenizer = Tokenizer::new(input);
+            assert_eq!(
+                expected,
+                tokenizer.collect::<Vec<Token>>(),
+                "tokenizer input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn floats() {
+        for (input, expected) in [
+            ("5.0", vec![Numerical("5.0")]),
+            ("-5.0", vec![Minus, Numerical("5.0")]),
+        ] {
+            let tokenizer = Tokenizer::new(input);
+            assert_eq!(
+                expected,
+                tokenizer.collect::<Vec<Token>>(),
+                "tokenizer input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn bools() {
+        assert_eq!(Some(True), Tokenizer::new("ja").next());
+        assert_eq!(Some(False), Tokenizer::new("nee").next());
+    }
+
+    #[test]
+    fn tokenize_declaration() {
+        let mut tokenizer = Tokenizer::new("stel foobar = 5;");
+        assert_eq!(tokenizer.next(), Some(Declare));
+        assert_eq!(tokenizer.next(), Some(Identifier("foobar")));
+        assert_eq!(tokenizer.next(), Some(Assign));
+        assert_eq!(tokenizer.next(), Some(Numerical("5")));
+        assert_eq!(tokenizer.next(), Some(Semi));
         assert_eq!(tokenizer.next(), None);
+    }
+
+    #[test]
+    fn tokenize_infix_expression() {
+        for (input, expected) in [
+            ("5 - 10", vec![Numerical("5"), Minus, Numerical("10")]),
+            ("5 + 10", vec![Numerical("5"), Plus, Numerical("10")]),
+            ("5 * 10", vec![Numerical("5"), Star, Numerical("10")]),
+            ("5 / 10", vec![Numerical("5"), Slash, Numerical("10")]),
+            ("5 % 10", vec![Numerical("5"), Percent, Numerical("10")]),
+            ("5 >= 10", vec![Numerical("5"), Gte, Numerical("10")]),
+            ("5 <= 10", vec![Numerical("5"), Lte, Numerical("10")]),
+            ("5 < 10", vec![Numerical("5"), Lt, Numerical("10")]),
+            ("5 > 10", vec![Numerical("5"), Gt, Numerical("10")]),
+            ("5 == 10", vec![Numerical("5"), Eq, Numerical("10")]),
+            ("5 != 10", vec![Numerical("5"), Neq, Numerical("10")]),
+        ] {
+            let tokenizer = Tokenizer::new(input);
+            assert_eq!(
+                expected,
+                tokenizer.collect::<Vec<Token>>(),
+                "tokenizer input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn tokenize_keywords() {
+        let mut tokenizer = Tokenizer::new("als anders voorelk en of antwoord functie stel");
+        assert_eq!(tokenizer.next(), Some(If));
+        assert_eq!(tokenizer.next(), Some(Else));
+        assert_eq!(tokenizer.next(), Some(Foreach));
+        assert_eq!(tokenizer.next(), Some(And));
+        assert_eq!(tokenizer.next(), Some(Or));
+        assert_eq!(tokenizer.next(), Some(Return));
+        assert_eq!(tokenizer.next(), Some(Func));
+        assert_eq!(tokenizer.next(), Some(Declare));
         assert_eq!(tokenizer.next(), None);
+    }
+
+    #[test]
+    fn prefix_expressions() {
+        for (input, expected) in [
+            ("!ja", vec![Bang, True]),
+            ("-5.0", vec![Minus, Numerical("5.0")]),
+        ] {
+            let tokenizer = Tokenizer::new(input);
+            assert_eq!(
+                expected,
+                tokenizer.collect::<Vec<Token>>(),
+                "tokenizer input: {}",
+                input
+            );
+        }
     }
 
     #[bench]
     fn bench_tokenizer(b: &mut Bencher) {
-        let input = std::fs::read_to_string("./examples/cargo-sample.rs").unwrap();
+        let input = std::fs::read_to_string("./examples/cargo.rs_example").unwrap();
         b.iter(|| {
             let v = Tokenizer::new(&input).collect::<Vec<Token>>();
-            
         });
     }
 }

@@ -1,22 +1,18 @@
 use std::boxed::Box;
 
-use crate::lexer::{Tokenizer, Token, TokenKind};
+use crate::lexer::{Token, Tokenizer};
 
-#[derive(PartialEq, Eq, Debug)]
-enum Expression {
-    Infix{
-        left: Box<Expression>,
-        operator: Operator,
-        right: Box<Expression>,
-    },
-    Prefix,
+#[derive(PartialEq, Debug)]
+pub(crate) enum Expr {
+    Infix(ExprInfix),
+    Prefix(ExprPrefix),
     Integer(i64),
-    Float,
+    Float(f64),
+    Boolean(bool),
     Identifier,
-    Boolean,
     Function,
     Call,
-    String,
+    String(String),
     Array,
     Index,
     For,
@@ -24,7 +20,20 @@ enum Expression {
     Assign,
 }
 
-enum Statement {
+#[derive(PartialEq, Debug)]
+pub(crate) struct ExprInfix {
+    pub(crate) left: Box<Expr>,
+    pub(crate) op: Op,
+    pub(crate) right: Box<Expr>,
+}
+
+#[derive(PartialEq, Debug)]
+pub(crate) struct ExprPrefix {
+    pub(crate) op: Op,
+    pub(crate) right: Box<Expr>,
+}
+
+pub(crate) enum Stmt {
     Let,
     Return,
     Expr,
@@ -33,26 +42,30 @@ enum Statement {
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum Operator {
+pub(crate) enum Op {
     Add,
     Subtract,
     Multiply,
     Divide,
-    GreaterThan,
-    GreaterThanOrEquals,
-    LessThan,
-    LessThanOrEquals,
-    Equals,
-    NotEquals,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    Eq,
+    Neq,
     Negate,
     And,
     Or,
     Modulo,
 }
 
+/// Token precedence used for Exprs
+/// The order here is important!
 #[derive(PartialOrd, PartialEq, Copy, Clone)]
 pub enum Precedence {
     Lowest,
+    Assign,
+    OrAnd,
     Equals,
     LessGreater,
     Sum,
@@ -63,65 +76,59 @@ pub enum Precedence {
     Index,
 }
 
-impl From<Token<'_>> for Precedence {
-    fn from(t: Token) -> Self {
-        match t.kind {
-            // TODO! Add Neq
-            TokenKind::Eq => Precedence::Equals,
-            TokenKind::Lt | TokenKind::Gt => Precedence::LessGreater,
-            TokenKind::Plus | TokenKind::Minus => Precedence::Sum,
-            TokenKind::Slash | TokenKind::Star => Precedence::Product,
-            TokenKind::OpenParen => Precedence::Call,
-            TokenKind::OpenBracket => Precedence::Index,
-            TokenKind::Dot => Precedence::Method,
+impl From<&Token<'_>> for Precedence {
+    fn from(t: &Token) -> Self {
+        match t {
+            Token::Assign => Precedence::Assign,
+            Token::Or | Token::And => Precedence::OrAnd,
+            Token::Lt | Token::Gt | Token::Lte | Token::Gte => Precedence::LessGreater,
+            Token::Eq | Token::Neq => Precedence::Equals,
+            Token::Plus | Token::Minus => Precedence::Sum,
+            Token::Slash | Token::Star | Token::Percent => Precedence::Product,
+            Token::Dot => Precedence::Method,
+            Token::OpenParen => Precedence::Call,
+            Token::OpenBracket => Precedence::Index,
             _ => Precedence::Lowest,
-
         }
     }
 }
 
-impl Precedence {
-    fn from_token(t: &Token) -> Precedence {
-        match t.kind {
-            // TODO! Add Neq
-            TokenKind::Eq => Precedence::Equals,
-            TokenKind::Lt | TokenKind::Gt => Precedence::LessGreater,
-            TokenKind::Plus | TokenKind::Minus => Precedence::Sum,
-            TokenKind::Slash | TokenKind::Star => Precedence::Product,
-            TokenKind::OpenParen => Precedence::Call,
-            TokenKind::OpenBracket => Precedence::Index,
-            TokenKind::Dot => Precedence::Method,
-            _ => Precedence::Lowest,
-
-        }
-    }
-}
-
-impl From<&Token<'_>> for Operator {
+impl From<&Token<'_>> for Op {
     fn from(value: &Token) -> Self {
-        match value.kind {
-            TokenKind::Plus => Operator::Add,
-            TokenKind::Minus => Operator::Subtract,
-            TokenKind::Slash => Operator::Divide,
-            TokenKind::Star => Operator::Multiply,
-            TokenKind::Percent => Operator::Modulo,
-            TokenKind::And => Operator::And,
-            TokenKind::Or => Operator::Or,
-            _ => todo!(),
+        match value {
+            Token::Plus => Op::Add,
+            Token::Minus => Op::Subtract,
+            Token::Slash => Op::Divide,
+            Token::Star => Op::Multiply,
+            Token::Percent => Op::Modulo,
+            Token::And => Op::And,
+            Token::Or => Op::Or,
+            Token::Gt => Op::Gt,
+            Token::Gte => Op::Gte,
+            Token::Lt => Op::Lt,
+            Token::Lte => Op::Lte,
+            Token::Eq => Op::Eq,
+            Token::Neq => Op::Neq,
+            Token::Bang => Op::Negate,
+            _ => todo!(
+                "Parsing token {:?} into operator is not yet implemented.",
+                value
+            ),
         }
     }
 }
 
-struct Parser <'a> {
+struct Parser<'a> {
     tokenizer: Tokenizer<'a>,
     current: Token<'a>,
     next: Token<'a>,
 }
 
-impl <'a> Parser <'a> {
-    fn new(mut tokenizer: Tokenizer) -> Parser {
-        let current = tokenizer.next().unwrap_or(Token{ kind: TokenKind::EOF, len: 0 });
-        let next = tokenizer.next().unwrap_or(Token{ kind: TokenKind::EOF, len: 0 });
+impl<'a> Parser<'a> {
+    fn new(input: &str) -> Parser {
+        let mut tokenizer = Tokenizer::new(input);
+        let current = Token::Illegal;
+        let next = tokenizer.next().unwrap_or(Token::Illegal);
         Parser {
             tokenizer,
             current,
@@ -131,115 +138,136 @@ impl <'a> Parser <'a> {
 
     fn advance(&mut self) {
         self.current = self.next;
-        self.next = self.tokenizer.next().unwrap_or(Token{ kind: TokenKind::EOF, len: 0 });
+        self.next = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
-    fn infix_expression(&mut self, left: Box<Expression>) -> Box<Expression> {
+    fn op(&mut self) -> Op {
         self.advance();
-        let operator = Operator::from(&self.current);
+        Op::from(&self.current)
+    }
 
-        self.advance();
-        return Box::new(Expression::Infix { 
+    fn infix_expr(&mut self, left: Box<Expr>) -> Box<Expr> {
+        return Box::new(Expr::Infix(ExprInfix {
             left,
-            operator: operator, 
-            right: self.expression(Precedence::from_token(&self.current)) 
-        })
+            op: self.op(),
+            right: self.expr(Precedence::from(&self.current)),
+        }));
     }
 
-    fn expression(&mut self, precedence: Precedence) -> Box<Expression> {
-        let mut left = match &self.current.kind {
-            TokenKind::Numerical(s) => {
-                Box::new(Expression::Integer(s.parse().unwrap()))
-            },
-            _ => panic!("Unsupported expression type: {:?}", self.current),
+    fn prefix(&mut self, op: Op) -> Box<Expr> {
+        return Box::new(Expr::Prefix(ExprPrefix {
+            op: op,
+            right: self.expr(Precedence::from(&self.current)),
+        }));
+    }
+
+    fn expr(&mut self, precedence: Precedence) -> Box<Expr> {
+        self.advance();
+
+        let mut left = match &self.current {
+            Token::Numerical(s) => {
+                if s.contains('.') {
+                    Box::new(Expr::Float(s.parse().unwrap()))
+                } else {
+                    Box::new(Expr::Integer(s.parse().unwrap()))
+                }
+            }
+            Token::True => Box::new(Expr::Boolean(true)),
+            Token::False => Box::new(Expr::Boolean(false)),
+            Token::String(s) => Box::new(Expr::String(s.to_string())),
+            Token::OpenParen => {
+                let expr = self.expr(Precedence::Lowest);
+                // skip closing parenthesis
+                self.advance();
+                expr
+            }
+            Token::Bang | Token::Minus => self.prefix((&self.current).into()),
+            _ => todo!("Unsupported expression type: {:?}", self.current),
         };
 
         // keep going
-        while self.next.kind != TokenKind::Semi && precedence < Precedence::from_token(&self.next) {
-            left = match self.next.kind {
-                TokenKind::Lt | TokenKind::Gt => self.infix_expression(left),
-                TokenKind::Plus | TokenKind::Minus => self.infix_expression(left),
-                TokenKind::Slash | TokenKind::Star => self.infix_expression(left),
+        while self.next != Token::Semi && precedence < Precedence::from(&self.next) {
+            left = match self.next {
+                Token::Lt
+                | Token::Lte
+                | Token::Gt
+                | Token::Gte
+                | Token::Eq
+                | Token::Neq
+                | Token::Plus
+                | Token::Minus
+                | Token::Slash
+                | Token::Star
+                | Token::Percent => self.infix_expr(left),
                 _ => return left,
             };
         }
-       
 
         return left;
     }
 }
 
-
-#[derive(PartialEq, Debug)]
-pub enum MyObject {
-    Int(i64)
+pub(crate) fn parse(program: &str) -> Box<Expr> {
+    Parser::new(program).expr(Precedence::Lowest)
 }
 
-fn eval(expr: &Expression) -> MyObject {
-    match expr {
-        Expression::Infix { left, operator, right } => {
-            let left = eval(left);
-            let right = eval(right);
-            match operator {
-                Operator::Add => {
-                    match (left, right) {
-                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a + b),
-                        _ => todo!(),
-                    }
-                },
-                Operator::Subtract => {
-                    match (left, right) {
-                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a - b),
-                        _ => todo!(),
-                    }
-                },
-                Operator::Multiply => {
-                    match (left, right) {
-                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a * b),
-                        _ => todo!(),
-                    }
-                },
-                Operator::Divide => {
-                    match (left, right) {
-                        (MyObject::Int(a), MyObject::Int(b)) => MyObject::Int(a / b),
-                        _ => todo!(),
-                    }
-                },
-                _ => todo!()
-            }
-        },
-        Expression::Integer(v) => MyObject::Int(*v),
-        _ => todo!(),
-    }
-}
-
-fn parse(program: &str) -> Box<Expression> {
-    let tokenizer = Tokenizer::new(program);
-    Parser::new(tokenizer).expression(Precedence::Lowest)
-}
-
-mod test {
+#[cfg(test)]
+mod tests {
     use super::*;
-    use Expression as E;
 
     #[test]
-    fn test_expression_parsing() {
-        let lbox = Box::new(E::Integer(5));
-        let rbox = Box::new(E::Integer(1));
-
-        assert_eq!(parse("5 + 1"), Box::new(E::Infix{ 
-            left: lbox,
-            operator: Operator::Add,
-            right: rbox,
-        }))
+    fn test_infix_expressions() {
+        for (input, expected_ast) in [
+            (
+                "5 + 1",
+                Expr::Infix(ExprInfix {
+                    left: Box::new(Expr::Integer(5)),
+                    op: Op::Add,
+                    right: Box::new(Expr::Integer(1)),
+                }),
+            ),
+            (
+                "5 - 1",
+                Expr::Infix(ExprInfix {
+                    left: Box::new(Expr::Integer(5)),
+                    op: Op::Subtract,
+                    right: Box::new(Expr::Integer(1)),
+                }),
+            ),
+            (
+                "5 * ( 1 + 1 )",
+                Expr::Infix(ExprInfix {
+                    left: Box::new(Expr::Integer(5)),
+                    op: Op::Multiply,
+                    right: Box::new(Expr::Infix(ExprInfix {
+                        left: Box::new(Expr::Integer(1)),
+                        op: Op::Add,
+                        right: Box::new(Expr::Integer(1)),
+                    })),
+                }),
+            ),
+        ] {
+            assert_eq!(*parse(input), expected_ast)
+        }
     }
 
     #[test]
-    fn test_eval() {
-        assert_eq!(eval(&parse("5+1")), MyObject::Int(6));
-        assert_eq!(eval(&parse("5*2")), MyObject::Int(10));
-        assert_eq!(eval(&parse("5/5")), MyObject::Int(1));
-        assert_eq!(eval(&parse("5-5")), MyObject::Int(0));
-        assert_eq!(eval(&parse("1 + 5 * 2")), MyObject::Int(11));
+    fn test_prefix_expressions() {
+        for (input, expected_ast) in [(
+            "! ja",
+            Expr::Prefix(ExprPrefix {
+                op: Op::Negate,
+                right: Box::new(Expr::Boolean(true)),
+            }),
+        )] {
+            assert_eq!(*parse(input), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_string_expressions() {
+        for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_string()))] {
+            assert_eq!(*parse(input), expected_ast)
+        }
     }
 }
