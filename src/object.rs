@@ -10,6 +10,7 @@ pub enum NlObject {
     Float(f64),
     Bool(bool),
     String(String),
+    Error(&'static str),
 }
 
 impl ops::Add<NlObject> for NlObject {
@@ -21,7 +22,14 @@ impl ops::Add<NlObject> for NlObject {
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a + b),
             (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a + *b as f64),
             (NlObject::Int(a), NlObject::Float(b)) => NlObject::Float(*a as f64 + b),
-            (NlObject::String(a), NlObject::String(b)) => NlObject::String(a.to_owned() + b),
+            (NlObject::String(a), NlObject::String(b)) => {
+                // Apparently this is the fastest way to concatenate two strings
+                // https://github.com/hoodie/concatenation_benchmarks-rs#the-same-results-rearranged-fastest-to-slowest
+                let mut s = String::with_capacity(a.len() + b.len());
+                s.push_str(a);
+                s.push_str(b);
+                NlObject::String(s)
+            },
             _ => todo!(
                 "Adding objects of type {:?} and {:?} is not yet supported.",
                 self,
@@ -56,10 +64,16 @@ impl ops::Mul<NlObject> for NlObject {
         match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a * b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a * b),
-            (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a * *b as f64),
+            (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a * (*b) as f64),
             (NlObject::Int(a), NlObject::Float(b)) => NlObject::Float(*a as f64 * b),
             (NlObject::String(a), NlObject::Int(b)) => {
-                NlObject::String(a.to_owned().repeat(*b as usize))
+                // TODO: Return error if b is negative
+                let n = *b as usize;
+                let mut s = String::with_capacity(a.len() * n);
+                for _ in 0..n {
+                    s.push_str(a);
+                }
+                NlObject::String(s)
             }
             _ => todo!(
                 "Multiplying objects of type {:?} and {:?} is not yet supported.",
