@@ -49,7 +49,7 @@ pub(crate) fn eval(expr: &Expr) -> NlObject {
         Expr::Integer(v) => NlObject::Int(*v),
         Expr::Float(v) => NlObject::Float(*v),
         Expr::Boolean(v) => NlObject::Bool(*v),
-        Expr::String(v) => NlObject::String(v.to_string()),
+        Expr::String(v) => NlObject::String(v.to_owned()),
         _ => todo!(
             "Evaluating expressions of type {:?} is not yet implemented.",
             expr
@@ -129,8 +129,8 @@ mod tests {
     #[test]
     fn test_string_infix_expressions() {
         for (input, expected) in [
-            ("\"foo\" + \"bar\"", NlObject::String("foobar".to_string())),
-            ("\"foo\" * 2", NlObject::String("foofoo".to_string())),
+            ("\"foo\" + \"bar\"", NlObject::String("foobar".to_owned())),
+            ("\"foo\" * 2", NlObject::String("foofoo".to_owned())),
         ] {
             assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
         }

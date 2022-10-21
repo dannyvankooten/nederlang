@@ -164,7 +164,7 @@ impl<'a> Parser<'a> {
     fn expr(&mut self, precedence: Precedence) -> Box<Expr> {
         self.advance();
 
-        let mut left = match &self.current {
+        let mut left = match self.current {
             Token::Numerical(s) => {
                 if s.contains('.') {
                     Box::new(Expr::Float(s.parse().unwrap()))
@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
             }
             Token::True => Box::new(Expr::Boolean(true)),
             Token::False => Box::new(Expr::Boolean(false)),
-            Token::String(s) => Box::new(Expr::String(s.to_string())),
+            Token::String(s) => Box::new(Expr::String(s.to_owned())),
             Token::OpenParen => {
                 let expr = self.expr(Precedence::Lowest);
                 // skip closing parenthesis
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_string_expressions() {
-        for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_string()))] {
+        for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_owned()))] {
             assert_eq!(*parse(input), expected_ast)
         }
     }
