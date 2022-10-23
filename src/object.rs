@@ -1,7 +1,7 @@
 use std::ops;
 
 pub enum Error {
-    TypeError
+    TypeError,
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
@@ -20,8 +20,11 @@ impl NlObject {
             NlObject::Bool(v) => *v,
             NlObject::Int(v) => *v > 0,
             NlObject::Float(v) => *v > 0.0,
-            NlObject::String(v) => v.len() > 0,
-            _ => unimplemented!("Can not use objects of type {:?} as boolean expression.", self),
+            NlObject::String(v) => !v.is_empty(),
+            _ => unimplemented!(
+                "Can not use objects of type {:?} as boolean expression.",
+                self
+            ),
         }
     }
 }
@@ -42,7 +45,7 @@ impl ops::Add<NlObject> for NlObject {
                 s.push_str(a);
                 s.push_str(b);
                 NlObject::String(s)
-            },
+            }
             _ => unimplemented!(
                 "Adding objects of type {:?} and {:?} is not supported.",
                 self,

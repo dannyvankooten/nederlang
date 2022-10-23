@@ -1,5 +1,5 @@
-use std::boxed::Box;
 use crate::lexer::{Token, Tokenizer};
+use std::boxed::Box;
 
 #[derive(PartialEq, Debug)]
 pub(crate) enum Expr {
@@ -160,49 +160,52 @@ impl<'a> Parser<'a> {
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
     fn parse_infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
-        return Ok(Box::new(Expr::Infix(ExprInfix {
+        Ok(Box::new(Expr::Infix(ExprInfix {
             left,
             op: self.parse_operator(),
             right: self.parse_expr(Precedence::from(&self.current))?,
-        })));
+        })))
     }
 
     /// Parses a prefix expression, like [Token::Minus, Token::Int(5)]
     fn parse_prefix_expr(&mut self, op: Op) -> Result<Box<Expr>, ParseError> {
-        return Ok(Box::new(Expr::Prefix(ExprPrefix {
-            op: op,
+        Ok(Box::new(Expr::Prefix(ExprPrefix {
+            op,
             right: self.parse_expr(Precedence::from(&self.current))?,
-        })));
+        })))
     }
 
     /// Parses an if-else (or if-else-if) expression
     fn parse_if_expr(&mut self) -> Result<Box<Expr>, ParseError> {
         let condition = self.parse_expr(Precedence::Lowest)?;
         let consequence = self.parse_block_statement()?;
-        let mut alternative = None;
-
-        if self.next == Token::Else {
+        let alternative = if self.next == Token::Else {
             self.skip(Token::Else)?;
 
             if self.next == Token::If {
-                alternative = Some(vec![self.parse_statement()?]);
+                Some(vec![self.parse_statement()?])
             } else {
-                alternative = Some(self.parse_block_statement()?);
+                Some(self.parse_block_statement()?)
             }
-        }
+        } else {
+            None
+        };
 
-        let expr = Box::new( Expr::If(ExprIf{
-           condition,
-           consequence,
-           alternative,
+        let expr = Box::new(Expr::If(ExprIf {
+            condition,
+            consequence,
+            alternative,
         }));
         Ok(expr)
     }
 
     /// Assert next token is of the given type and skips it
-    fn skip(&mut self, t: Token) -> Result<(), ParseError>{
+    fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.next != t {
-            return Err(ParseError{ message: format!("Unexpected token: expected {:?}, got {:?}", t, self.next).to_owned() });
+            return Err(ParseError {
+                message: format!("Unexpected token: expected {:?}, got {:?}", t, self.next)
+                    ,
+            });
         }
         assert_eq!(self.next, t);
         self.advance();
@@ -211,7 +214,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Skips the next token if it is of the given type
-    fn maybe_skip(&mut self, t: Token) {
+    fn skip_optional(&mut self, t: Token) {
         if self.next == t {
             self.advance()
         }
@@ -255,12 +258,12 @@ impl<'a> Parser<'a> {
             };
         }
 
-        return Ok(left);
+        Ok(left)
     }
 
     /// Parse a single statement
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
-        return Ok(Stmt::Expr(*self.parse_expr(Precedence::Lowest)?));
+        Ok(Stmt::Expr(*self.parse_expr(Precedence::Lowest)?))
     }
 
     /// Parse a block (surrounded by curly braces)
@@ -271,11 +274,11 @@ impl<'a> Parser<'a> {
 
         while self.next != Token::Illegal && self.next != Token::CloseBrace {
             block.push(self.parse_statement()?);
-            self.maybe_skip(Token::Semi);
+            self.skip_optional(Token::Semi);
         }
 
         self.skip(Token::CloseBrace)?;
-        return Ok(block);
+        Ok(block)
     }
 }
 
@@ -291,10 +294,10 @@ pub(crate) fn parse(program: &str) -> Result<BlockStmt, ParseError> {
 
     while parser.next != Token::Illegal {
         block.push(parser.parse_statement()?);
-        parser.maybe_skip(Token::Semi);
+        parser.skip_optional(Token::Semi);
     }
 
-    return Ok(block);
+    Ok(block)
 }
 
 #[cfg(test)]
@@ -333,7 +336,7 @@ mod tests {
                 }),
             ),
         ] {
-            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
@@ -346,14 +349,14 @@ mod tests {
                 right: Box::new(Expr::Boolean(true)),
             }),
         )] {
-            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
     #[test]
     fn test_string_expressions() {
         for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_owned()))] {
-            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 }

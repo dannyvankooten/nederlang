@@ -1,9 +1,9 @@
 #![feature(test)]
 
-mod lexer;
-mod parser;
-mod object;
 mod eval;
+mod lexer;
+mod object;
+mod parser;
 
 use eval::Eval;
 use object::NlObject;
@@ -15,7 +15,7 @@ fn run(program: &str) -> NlObject {
         Err(e) => {
             eprintln!("{}", e.message);
             NlObject::Null
-        },
+        }
     }
 }
 
@@ -29,7 +29,7 @@ fn main() -> io::Result<()> {
 
         let obj = run(&buffer);
         println!("Out: {:?}", obj);
-        println!("");
+        println!();
     }
 
     Ok(())

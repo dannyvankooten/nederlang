@@ -190,16 +190,16 @@ impl<'a> Iterator for Tokenizer<'a> {
             '0'..='9' => {
                 let mut decimal = false;
                 self.skip_while(|c| {
-                    if c.is_digit(10) {
+                    if c.is_ascii_digit() {
                         return true;
                     }
 
-                    if ! decimal && c == '.' {
+                    if !decimal && c == '.' {
                         decimal = true;
                         return true;
                     }
 
-                    return false;
+                    false
                 });
                 let strval = self.read_str(start, self.offset());
                 if decimal {
@@ -321,10 +321,7 @@ mod tests {
 
     #[test]
     fn ints() {
-        for (input, expected) in [
-            ("5", vec![Int("5")]),
-            ("-5", vec![Minus, Int("5")]),
-        ] {
+        for (input, expected) in [("5", vec![Int("5")]), ("-5", vec![Minus, Int("5")])] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
                 expected,
@@ -428,7 +425,7 @@ mod tests {
         let input = std::fs::read_to_string("./examples/cargo.rs_example").unwrap();
         b.iter(|| {
             let v = Tokenizer::new(&input).collect::<Vec<Token>>();
-            assert!(v.len() > 0);
+            assert!(!v.is_empty());
         });
     }
 }
