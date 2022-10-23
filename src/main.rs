@@ -1,16 +1,22 @@
 #![feature(test)]
 
-mod eval;
 mod lexer;
-mod object;
 mod parser;
+mod object;
+mod eval;
 
+use eval::Eval;
 use object::NlObject;
 use std::io;
 
 fn run(program: &str) -> NlObject {
-    let ast = parser::parse(program);
-    eval::eval(&ast)
+    match parser::parse(program) {
+        Ok(ast) => ast.eval(),
+        Err(e) => {
+            eprintln!("{}", e.message);
+            NlObject::Null
+        },
+    }
 }
 
 fn main() -> io::Result<()> {

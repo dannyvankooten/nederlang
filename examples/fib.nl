@@ -5,3 +5,6 @@ functie fib(n) {
 
     antwoord fib(n - 1) + fib(n - 2)
 }
+
+stel a = fib(10)
+print(a)

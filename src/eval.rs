@@ -1,10 +1,14 @@
 use crate::object::*;
-use crate::parser::{Expr, ExprInfix, ExprPrefix, Op, Stmt};
+use crate::parser::{Expr, ExprInfix, ExprPrefix, Op, Stmt, BlockStmt, ExprIf};
 
-impl ExprInfix {
+pub(crate) trait Eval {
+    fn eval(&self) -> NlObject;
+}
+
+impl Eval for ExprInfix {
     fn eval(&self) -> NlObject {
-        let left = eval(&self.left);
-        let right = eval(&self.right);
+        let left = self.left.eval();
+        let right = self.right.eval();
 
         match &self.op {
             Op::Add => left + right,
@@ -18,49 +22,87 @@ impl ExprInfix {
             Op::Lte => NlObject::Bool(left >= right),
             Op::Eq => NlObject::Bool(left == right),
             Op::Neq => NlObject::Bool(left != right),
-            _ => todo!(
-                "Infix expressions with operator {:?} are not yet implemented.",
+            _ => unimplemented!(
+                "Infix expressions with operator {:?} are not implemented.",
                 &self.op
             ),
         }
     }
 }
 
-impl ExprPrefix {
+impl Eval for ExprPrefix {
     fn eval(&self) -> NlObject {
-        let right = eval(&self.right);
+        let right = self.right.eval();
 
         match &self.op {
             Op::Negate => !right,
             Op::Subtract => -right,
-            _ => todo!(
-                "Infix expressions with operator {:?} are not yet implemented.",
+            _ => unimplemented!(
+                "Infix expressions with operator {:?} are not implemented.",
                 &self.op
             ),
         }
     }
 }
 
-pub(crate) fn eval(expr: &Expr) -> NlObject {
-    // dbg!(expr);
-    match expr {
-        Expr::Infix(expr) => expr.eval(),
-        Expr::Prefix(expr) => expr.eval(),
-        Expr::Integer(v) => NlObject::Int(*v),
-        Expr::Float(v) => NlObject::Float(*v),
-        Expr::Boolean(v) => NlObject::Bool(*v),
-        Expr::String(v) => NlObject::String(v.to_owned()),
-        _ => todo!(
-            "Evaluating expressions of type {:?} is not yet implemented.",
-            expr
-        ),
+
+impl Eval for ExprIf {
+    fn eval(&self) -> NlObject {
+        let condition = self.condition.eval();
+        
+        if condition.is_truthy() {
+            self.consequence.eval()
+        } else if let Some(alternative) = &self.alternative {
+            alternative.eval()
+        } else {
+            NlObject::Null
+        }
+    }
+}
+
+impl Eval for Stmt {
+    fn eval(&self) -> NlObject {
+        match self {
+            Stmt::Expr(expr) => expr.eval(),
+            _ => todo!(),
+        }
+    }
+}
+
+impl Eval for BlockStmt {
+    fn eval(&self) -> NlObject {
+
+        let mut last = NlObject::Null;
+        for s in self {
+            last = s.eval()
+        }
+        last
+    }
+}
+impl Eval for Expr {
+    fn eval(&self) -> NlObject {
+        match self {
+            Expr::Infix(expr) => expr.eval(),
+            Expr::Prefix(expr) => expr.eval(),
+            Expr::If(expr) => expr.eval(),
+            Expr::Integer(v) => NlObject::Int(*v),
+            Expr::Float(v) => NlObject::Float(*v),
+            Expr::Boolean(v) => NlObject::Bool(*v),
+            Expr::String(v) => NlObject::String(v.to_owned()),
+            _ => unimplemented!(
+                "Evaluating expressions of type {:?} is not yet implemented.",
+                self
+            ),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test::Bencher;
     use crate::parser::parse;
+    extern crate test;
 
     #[test]
     fn test_int_arithmetic() {
@@ -71,7 +113,7 @@ mod tests {
             ("6 / 2", NlObject::Int(3)),
             ("6 % 2", NlObject::Int(0)),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
 
@@ -84,12 +126,13 @@ mod tests {
             ("6.5 / 2.0", NlObject::Float(3.25)),
             ("6.5 % 2.0", NlObject::Float(0.5)),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
 
     #[test]
-    fn test_type_coercion_mixed_arithmetic() {
+    fn test_mixed_arithmetic() {
+
         for (input, expected) in [
             ("6.5 + 2", NlObject::Float(8.5)),
             ("6 - 2.0", NlObject::Float(4.0)),
@@ -97,7 +140,7 @@ mod tests {
             ("6.5 / 2", NlObject::Float(3.25)),
             ("6.5 % 2", NlObject::Float(0.5)),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
 
@@ -109,7 +152,7 @@ mod tests {
             ("1 >= 1", NlObject::Bool(true)),
             ("1 <= 1", NlObject::Bool(true)),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
 
@@ -122,7 +165,7 @@ mod tests {
             ("!!ja", NlObject::Bool(true)),
             ("!!!ja", NlObject::Bool(false)),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
 
@@ -132,7 +175,47 @@ mod tests {
             ("\"foo\" + \"bar\"", NlObject::String("foobar".to_owned())),
             ("\"foo\" * 2", NlObject::String("foofoo".to_owned())),
         ] {
-            assert_eq!(expected, eval(&parse(input)), "eval input: {}", input);
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
+    }
+
+    #[test]
+    fn test_multiple_expressions() {
+        for (input, expected) in [
+            ("5 + 5; 6 + 2", NlObject::Int(8)),
+        ] {
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_if_expressions() {
+        for (input, expected) in [
+            ("als 5 > 4 { 1 }", NlObject::Int(1)),
+            ("als 5 < 4 { 1 }", NlObject::Null),
+            ("als 5 < 4 { 1 } anders { 2 }", NlObject::Int(2)),
+            ("als (5 > 4) { 1 } anders { 2 }", NlObject::Int(1)),
+        ] {
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_nested_if_expressions() {
+        for (input, expected) in [
+            ("als 5 > 4 { als 11 > 10 { 1 } }", NlObject::Int(1)),
+            ("als 5 > 4 { als 10 > 11 { 1 } anders { 2 } }", NlObject::Int(2)),
+        ] {
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
+        }
+    }
+    
+
+    #[bench]
+    #[ignore]
+    fn bench_string_addition(b: &mut Bencher) {
+        b.iter(|| {
+            assert_eq!(NlObject::String("foo".repeat(10)), parse("\"foo\" * 10").unwrap().eval());
+        });
     }
 }

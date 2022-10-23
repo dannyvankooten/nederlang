@@ -6,11 +6,24 @@ pub enum Error {
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub enum NlObject {
+    Null,
     Int(i64),
     Float(f64),
     Bool(bool),
     String(String),
     Error(&'static str),
+}
+
+impl NlObject {
+    pub(crate) fn is_truthy(&self) -> bool {
+        match self {
+            NlObject::Bool(v) => *v,
+            NlObject::Int(v) => *v > 0,
+            NlObject::Float(v) => *v > 0.0,
+            NlObject::String(v) => v.len() > 0,
+            _ => unimplemented!("Can not use objects of type {:?} as boolean expression.", self),
+        }
+    }
 }
 
 impl ops::Add<NlObject> for NlObject {
@@ -30,8 +43,8 @@ impl ops::Add<NlObject> for NlObject {
                 s.push_str(b);
                 NlObject::String(s)
             },
-            _ => todo!(
-                "Adding objects of type {:?} and {:?} is not yet supported.",
+            _ => unimplemented!(
+                "Adding objects of type {:?} and {:?} is not supported.",
                 self,
                 rhs
             ),
@@ -48,8 +61,8 @@ impl ops::Sub<NlObject> for NlObject {
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a - b),
             (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a - *b as f64),
             (NlObject::Int(a), NlObject::Float(b)) => NlObject::Float(*a as f64 - b),
-            _ => todo!(
-                "Subtracting objects of type {:?} and {:?} is not yet supported.",
+            _ => unimplemented!(
+                "Subtracting objects of type {:?} and {:?} is not supported.",
                 self,
                 rhs
             ),
@@ -75,8 +88,8 @@ impl ops::Mul<NlObject> for NlObject {
                 }
                 NlObject::String(s)
             }
-            _ => todo!(
-                "Multiplying objects of type {:?} and {:?} is not yet supported.",
+            _ => unimplemented!(
+                "Multiplying objects of type {:?} and {:?} is not supported.",
                 self,
                 rhs
             ),
@@ -93,8 +106,8 @@ impl ops::Div<NlObject> for NlObject {
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a / b),
             (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a / *b as f64),
             (NlObject::Int(a), NlObject::Float(b)) => NlObject::Float(*a as f64 / b),
-            _ => todo!(
-                "Dividing objects of type {:?} and {:?} is not yet supported.",
+            _ => unimplemented!(
+                "Dividing objects of type {:?} and {:?} is not supported.",
                 self,
                 rhs
             ),
@@ -111,8 +124,8 @@ impl ops::Rem<NlObject> for NlObject {
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a % b),
             (NlObject::Float(a), NlObject::Int(b)) => NlObject::Float(a % *b as f64),
             (NlObject::Int(a), NlObject::Float(b)) => NlObject::Float(*a as f64 % b),
-            _ => todo!(
-                "Taking the remainder objects of type {:?} and {:?} is not yet supported.",
+            _ => unimplemented!(
+                "Taking the remainder objects of type {:?} and {:?} is not supported.",
                 self,
                 rhs
             ),
@@ -126,7 +139,7 @@ impl ops::Not for NlObject {
     fn not(self) -> NlObject {
         match self {
             NlObject::Bool(v) => NlObject::Bool(!v),
-            _ => todo!(),
+            _ => unimplemented!("Not on objects of type {:?} is not implemented.", self),
         }
     }
 }
@@ -138,7 +151,7 @@ impl ops::Neg for NlObject {
         match self {
             NlObject::Int(v) => NlObject::Int(-v),
             NlObject::Float(v) => NlObject::Float(-v),
-            _ => todo!(),
+            _ => unimplemented!("Negating objects of type {:?} is not implemented.", self),
         }
     }
 }

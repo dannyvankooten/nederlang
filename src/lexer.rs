@@ -1,12 +1,11 @@
-extern crate test;
-
 use self::Token::*;
 use std::str::Chars;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum Token<'a> {
     Identifier(&'a str),
-    Numerical(&'a str),
+    Int(&'a str),
+    Float(&'a str),
     String(&'a str),
 
     // Keywords
@@ -117,35 +116,35 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Peeks the next char from the input stream without consuming it.
-    pub(crate) fn peek(&self) -> Option<char> {
+    fn peek(&self) -> Option<char> {
         // `.next()` optimizes better than `.nth(0)`
         self.chars.clone().next()
     }
 
     /// Checks if there is nothing more to consume.
-    pub(crate) fn is_eof(&self) -> bool {
+    fn is_eof(&self) -> bool {
         self.offset() >= self.input.len()
     }
 
     /// Moves to the next character.
-    pub(crate) fn bump(&mut self) -> Option<char> {
+    fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
         self.pos += c.len_utf8();
         Some(c)
     }
 
     /// Returns current offset into the source file
-    pub(crate) fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.pos
     }
 
     /// Takes a string slice from and to given offsets, respectively
-    pub(crate) fn read_str(&self, from: usize, to: usize) -> &'a str {
+    fn read_str(&self, from: usize, to: usize) -> &'a str {
         &self.input[from..to]
     }
 
     /// Eats symbols while predicate returns true or until the end of file is reached.
-    pub(crate) fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
+    fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
         // It was tried making optimized version of this for eg. line comments, but
         // LLVM can inline all of this and compile it down to fast iteration over bytes.
         while !self.is_eof() && predicate(self.peek().unwrap()) {
@@ -188,11 +187,26 @@ impl<'a> Iterator for Tokenizer<'a> {
             }
 
             // Integers & Floats
-            // TODO! Negative numericals? Or leave it as prefix expression for parser?
             '0'..='9' => {
-                self.skip_while(|c| c.is_digit(10) || c == '.');
+                let mut decimal = false;
+                self.skip_while(|c| {
+                    if c.is_digit(10) {
+                        return true;
+                    }
+
+                    if ! decimal && c == '.' {
+                        decimal = true;
+                        return true;
+                    }
+
+                    return false;
+                });
                 let strval = self.read_str(start, self.offset());
-                Numerical(strval)
+                if decimal {
+                    Float(strval)
+                } else {
+                    Int(strval)
+                }
             }
 
             // String values
@@ -301,14 +315,15 @@ pub fn is_whitespace(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
     use super::*;
     use test::Bencher;
 
     #[test]
     fn ints() {
         for (input, expected) in [
-            ("5", vec![Numerical("5")]),
-            ("-5", vec![Minus, Numerical("5")]),
+            ("5", vec![Int("5")]),
+            ("-5", vec![Minus, Int("5")]),
         ] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
@@ -323,8 +338,8 @@ mod tests {
     #[test]
     fn floats() {
         for (input, expected) in [
-            ("5.0", vec![Numerical("5.0")]),
-            ("-5.0", vec![Minus, Numerical("5.0")]),
+            ("5.0", vec![Float("5.0")]),
+            ("-5.0", vec![Minus, Float("5.0")]),
         ] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
@@ -348,7 +363,7 @@ mod tests {
         assert_eq!(tokenizer.next(), Some(Declare));
         assert_eq!(tokenizer.next(), Some(Identifier("foobar")));
         assert_eq!(tokenizer.next(), Some(Assign));
-        assert_eq!(tokenizer.next(), Some(Numerical("5")));
+        assert_eq!(tokenizer.next(), Some(Int("5")));
         assert_eq!(tokenizer.next(), Some(Semi));
         assert_eq!(tokenizer.next(), None);
     }
@@ -356,17 +371,17 @@ mod tests {
     #[test]
     fn tokenize_infix_expression() {
         for (input, expected) in [
-            ("5 - 10", vec![Numerical("5"), Minus, Numerical("10")]),
-            ("5 + 10", vec![Numerical("5"), Plus, Numerical("10")]),
-            ("5 * 10", vec![Numerical("5"), Star, Numerical("10")]),
-            ("5 / 10", vec![Numerical("5"), Slash, Numerical("10")]),
-            ("5 % 10", vec![Numerical("5"), Percent, Numerical("10")]),
-            ("5 >= 10", vec![Numerical("5"), Gte, Numerical("10")]),
-            ("5 <= 10", vec![Numerical("5"), Lte, Numerical("10")]),
-            ("5 < 10", vec![Numerical("5"), Lt, Numerical("10")]),
-            ("5 > 10", vec![Numerical("5"), Gt, Numerical("10")]),
-            ("5 == 10", vec![Numerical("5"), Eq, Numerical("10")]),
-            ("5 != 10", vec![Numerical("5"), Neq, Numerical("10")]),
+            ("5 - 10", vec![Int("5"), Minus, Int("10")]),
+            ("5 + 10", vec![Int("5"), Plus, Int("10")]),
+            ("5 * 10", vec![Int("5"), Star, Int("10")]),
+            ("5 / 10", vec![Int("5"), Slash, Int("10")]),
+            ("5 % 10", vec![Int("5"), Percent, Int("10")]),
+            ("5 >= 10", vec![Int("5"), Gte, Int("10")]),
+            ("5 <= 10", vec![Int("5"), Lte, Int("10")]),
+            ("5 < 10", vec![Int("5"), Lt, Int("10")]),
+            ("5 > 10", vec![Int("5"), Gt, Int("10")]),
+            ("5 == 10", vec![Int("5"), Eq, Int("10")]),
+            ("5 != 10", vec![Int("5"), Neq, Int("10")]),
         ] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
@@ -396,7 +411,7 @@ mod tests {
     fn prefix_expressions() {
         for (input, expected) in [
             ("!ja", vec![Bang, True]),
-            ("-5.0", vec![Minus, Numerical("5.0")]),
+            ("-5.0", vec![Minus, Float("5.0")]),
         ] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
@@ -413,6 +428,7 @@ mod tests {
         let input = std::fs::read_to_string("./examples/cargo.rs_example").unwrap();
         b.iter(|| {
             let v = Tokenizer::new(&input).collect::<Vec<Token>>();
+            assert!(v.len() > 0);
         });
     }
 }

@@ -1,5 +1,4 @@
 use std::boxed::Box;
-
 use crate::lexer::{Token, Tokenizer};
 
 #[derive(PartialEq, Debug)]
@@ -9,6 +8,7 @@ pub(crate) enum Expr {
     Integer(i64),
     Float(f64),
     Boolean(bool),
+    If(ExprIf),
     Identifier,
     Function,
     Call,
@@ -33,13 +33,24 @@ pub(crate) struct ExprPrefix {
     pub(crate) right: Box<Expr>,
 }
 
-pub(crate) enum Stmt {
-    Let,
-    Return,
-    Expr,
-    Break,
-    Continue,
+#[derive(PartialEq, Debug)]
+pub(crate) struct ExprIf {
+    pub(crate) condition: Box<Expr>,
+    pub(crate) consequence: BlockStmt,
+    pub(crate) alternative: Option<BlockStmt>,
 }
+
+#[derive(PartialEq, Debug)]
+pub(crate) enum Stmt {
+    // Let(String, Expr),
+    // Return(Expr),
+    Expr(Expr),
+    // Break,
+    // Continue,
+}
+
+pub(crate) type BlockStmt = Vec<Stmt>;
+pub(crate) type Program = BlockStmt;
 
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) enum Op {
@@ -71,7 +82,6 @@ pub enum Precedence {
     Sum,
     Product,
     Method,
-    Prefix,
     Call,
     Index,
 }
@@ -110,8 +120,8 @@ impl From<&Token<'_>> for Op {
             Token::Eq => Op::Eq,
             Token::Neq => Op::Neq,
             Token::Bang => Op::Negate,
-            _ => todo!(
-                "Parsing token {:?} into operator is not yet implemented.",
+            _ => unimplemented!(
+                "Parsing token {:?} into operator is not implemented.",
                 value
             ),
         }
@@ -125,6 +135,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Creates a new Parser from the given input string
     fn new(input: &str) -> Parser {
         let mut tokenizer = Tokenizer::new(input);
         let current = Token::Illegal;
@@ -136,52 +147,87 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Advances the parser (reads the next token)
     fn advance(&mut self) {
         self.current = self.next;
         self.next = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
+    /// Parses an operator token
     fn op(&mut self) -> Op {
         self.advance();
         Op::from(&self.current)
     }
 
-    fn infix_expr(&mut self, left: Box<Expr>) -> Box<Expr> {
-        return Box::new(Expr::Infix(ExprInfix {
+    /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
+    fn infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
+        return Ok(Box::new(Expr::Infix(ExprInfix {
             left,
             op: self.op(),
-            right: self.expr(Precedence::from(&self.current)),
-        }));
+            right: self.expr(Precedence::from(&self.current))?,
+        })));
     }
 
-    fn prefix(&mut self, op: Op) -> Box<Expr> {
-        return Box::new(Expr::Prefix(ExprPrefix {
+    /// Parses a prefix expression, like [Token::Minus, Token::Int(5)]
+    fn prefix(&mut self, op: Op) -> Result<Box<Expr>, ParseError> {
+        return Ok(Box::new(Expr::Prefix(ExprPrefix {
             op: op,
-            right: self.expr(Precedence::from(&self.current)),
-        }));
+            right: self.expr(Precedence::from(&self.current))?,
+        })));
     }
 
-    fn expr(&mut self, precedence: Precedence) -> Box<Expr> {
+    /// Assert next token is of the given type and skips it
+    fn skip(&mut self, t: Token) -> Result<(), ParseError>{
+        if self.next != t {
+            return Err(ParseError{ message: format!("Unexpected token: expected {:?}, got {:?}", t, self.next).to_owned() });
+        }
+        assert_eq!(self.next, t);
+        self.advance();
+
+        Ok(())
+    }
+
+    /// Skips the next token if it is of the given type
+    fn maybe_skip(&mut self, t: Token) {
+        if self.next == t {
+            self.advance()
+        }
+    }
+
+    /// Parse an expression
+    fn expr(&mut self, precedence: Precedence) -> Result<Box<Expr>, ParseError> {
         self.advance();
 
         let mut left = match self.current {
-            Token::Numerical(s) => {
-                if s.contains('.') {
-                    Box::new(Expr::Float(s.parse().unwrap()))
-                } else {
-                    Box::new(Expr::Integer(s.parse().unwrap()))
-                }
-            }
+            Token::Int(s) => Box::new(Expr::Integer(s.parse().unwrap())),
+            Token::Float(s) => Box::new(Expr::Float(s.parse().unwrap())),
             Token::True => Box::new(Expr::Boolean(true)),
             Token::False => Box::new(Expr::Boolean(false)),
             Token::String(s) => Box::new(Expr::String(s.to_owned())),
             Token::OpenParen => {
-                let expr = self.expr(Precedence::Lowest);
+                let expr = self.expr(Precedence::Lowest)?;
                 // skip closing parenthesis
-                self.advance();
+                self.skip(Token::CloseParen)?;
                 expr
             }
-            Token::Bang | Token::Minus => self.prefix((&self.current).into()),
+            Token::If => {
+                let condition = self.expr(Precedence::Lowest)?;
+                let consequence = self.block_statement()?;
+                let mut alternative = None;
+
+                if self.next == Token::Else {
+                    self.skip(Token::Else)?;
+                    alternative = Some(self.block_statement()?);
+                }
+
+                let expr = Box::new( Expr::If(ExprIf{
+                   condition,
+                   consequence,
+                   alternative,
+                }));
+                expr
+            },
+            Token::Bang | Token::Minus => self.prefix((&self.current).into())?,
             _ => todo!("Unsupported expression type: {:?}", self.current),
         };
 
@@ -198,17 +244,51 @@ impl<'a> Parser<'a> {
                 | Token::Minus
                 | Token::Slash
                 | Token::Star
-                | Token::Percent => self.infix_expr(left),
-                _ => return left,
+                | Token::Percent => self.infix_expr(left)?,
+                _ => return Ok(left),
             };
         }
 
-        return left;
+        return Ok(left);
+    }
+
+    /// Parse a single statement
+    fn statement(&mut self) -> Result<Stmt, ParseError> {
+        return Ok(Stmt::Expr(*self.expr(Precedence::Lowest)?));
+    }
+
+    /// Parse a block (surrounded by curly braces)
+    /// Can be an unnamed block, function body, if consequence, etc.
+    fn block_statement(&mut self) -> Result<BlockStmt, ParseError> {
+        let mut block = BlockStmt::with_capacity(64);
+        self.skip(Token::OpenBrace)?;
+
+        while self.next != Token::Illegal && self.next != Token::CloseBrace {
+            block.push(self.statement()?);
+            self.maybe_skip(Token::Semi);
+        }
+
+        self.skip(Token::CloseBrace)?;
+        return Ok(block);
     }
 }
 
-pub(crate) fn parse(program: &str) -> Box<Expr> {
-    Parser::new(program).expr(Precedence::Lowest)
+#[derive(Debug)]
+pub(crate) struct ParseError {
+    pub(crate) message: String,
+}
+
+/// Parses the program string into an AST representation
+pub(crate) fn parse(program: &str) -> Result<BlockStmt, ParseError> {
+    let mut parser = Parser::new(program);
+    let mut block = BlockStmt::with_capacity(64);
+
+    while parser.next != Token::Illegal {
+        block.push(parser.statement()?);
+        parser.maybe_skip(Token::Semi);
+    }
+
+    return Ok(block);
 }
 
 #[cfg(test)]
@@ -247,7 +327,7 @@ mod tests {
                 }),
             ),
         ] {
-            assert_eq!(*parse(input), expected_ast)
+            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
         }
     }
 
@@ -260,14 +340,14 @@ mod tests {
                 right: Box::new(Expr::Boolean(true)),
             }),
         )] {
-            assert_eq!(*parse(input), expected_ast)
+            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
         }
     }
 
     #[test]
     fn test_string_expressions() {
         for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_owned()))] {
-            assert_eq!(*parse(input), expected_ast)
+            assert_eq!(parse(input).unwrap(), vec![ Stmt::Expr(expected_ast) ])
         }
     }
 }
