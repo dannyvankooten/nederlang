@@ -1,78 +1,11 @@
+use crate::ast::*;
 use crate::lexer::{Token, Tokenizer};
 use std::boxed::Box;
 
-#[derive(PartialEq, Debug)]
-pub(crate) enum Expr {
-    Infix(ExprInfix),
-    Prefix(ExprPrefix),
-    Integer(i64),
-    Float(f64),
-    Boolean(bool),
-    If(ExprIf),
-    Identifier,
-    Function,
-    Call,
-    String(String),
-    Array,
-    Index,
-    For,
-    While,
-    Assign,
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) struct ExprInfix {
-    pub(crate) left: Box<Expr>,
-    pub(crate) op: Op,
-    pub(crate) right: Box<Expr>,
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) struct ExprPrefix {
-    pub(crate) op: Op,
-    pub(crate) right: Box<Expr>,
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) struct ExprIf {
-    pub(crate) condition: Box<Expr>,
-    pub(crate) consequence: BlockStmt,
-    pub(crate) alternative: Option<BlockStmt>,
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) enum Stmt {
-    // Let(String, Expr),
-    // Return(Expr),
-    Expr(Expr),
-    // Break,
-    // Continue,
-}
-
-pub(crate) type BlockStmt = Vec<Stmt>;
-
-#[derive(PartialEq, Eq, Debug)]
-pub(crate) enum Op {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    Eq,
-    Neq,
-    Negate,
-    And,
-    Or,
-    Modulo,
-}
-
 /// Token precedence used for Exprs
 /// The order here is important!
-#[derive(PartialOrd, PartialEq, Copy, Clone)]
-pub enum Precedence {
+#[derive(PartialOrd, PartialEq)]
+enum Precedence {
     Lowest,
     Assign,
     OrAnd,
@@ -85,9 +18,10 @@ pub enum Precedence {
     Index,
 }
 
-impl From<&Token<'_>> for Precedence {
-    fn from(t: &Token) -> Self {
-        match t {
+impl Token<'_> {
+    /// Get the parsing precedence for a given Token
+    fn precedence(&self) -> Precedence {
+        match self {
             Token::Assign => Precedence::Assign,
             Token::Or | Token::And => Precedence::OrAnd,
             Token::Lt | Token::Gt | Token::Lte | Token::Gte => Precedence::LessGreater,
@@ -102,87 +36,60 @@ impl From<&Token<'_>> for Precedence {
     }
 }
 
-impl From<&Token<'_>> for Op {
-    fn from(value: &Token) -> Self {
-        match value {
-            Token::Plus => Op::Add,
-            Token::Minus => Op::Subtract,
-            Token::Slash => Op::Divide,
-            Token::Star => Op::Multiply,
-            Token::Percent => Op::Modulo,
-            Token::And => Op::And,
-            Token::Or => Op::Or,
-            Token::Gt => Op::Gt,
-            Token::Gte => Op::Gte,
-            Token::Lt => Op::Lt,
-            Token::Lte => Op::Lte,
-            Token::Eq => Op::Eq,
-            Token::Neq => Op::Neq,
-            Token::Bang => Op::Negate,
-            _ => unimplemented!(
-                "Parsing token {:?} into operator is not implemented.",
-                value
-            ),
-        }
-    }
-}
-
 struct Parser<'a> {
     tokenizer: Tokenizer<'a>,
-    current: Token<'a>,
-    next: Token<'a>,
+    current_token: Token<'a>,
+    next_token: Token<'a>,
 }
 
 impl<'a> Parser<'a> {
     /// Creates a new Parser from the given input string
     fn new(input: &str) -> Parser {
         let mut tokenizer = Tokenizer::new(input);
-        let current = Token::Illegal;
-        let next = tokenizer.next().unwrap_or(Token::Illegal);
+        let current_token = Token::Illegal;
+        let next_token = tokenizer.next().unwrap_or(Token::Illegal);
         Parser {
             tokenizer,
-            current,
-            next,
+            current_token,
+            next_token,
         }
     }
 
     /// Advances the parser (reads the next token)
     fn advance(&mut self) {
-        self.current = self.next;
-        self.next = self.tokenizer.next().unwrap_or(Token::Illegal);
+        self.current_token = self.next_token;
+        self.next_token = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
     /// Parses an operator token
     fn parse_operator(&mut self) -> Op {
         self.advance();
-        Op::from(&self.current)
+        Op::from(&self.current_token)
     }
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
     fn parse_infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
-        Ok(Box::new(Expr::Infix(ExprInfix {
-            left,
-            op: self.parse_operator(),
-            right: self.parse_expr(Precedence::from(&self.current))?,
-        })))
+        let op = self.parse_operator();
+        let right = self.parse_expr(self.current_token.precedence())?;
+        Ok(ExprInfix::new(left, op, right))
     }
 
     /// Parses a prefix expression, like [Token::Minus, Token::Int(5)]
     fn parse_prefix_expr(&mut self, op: Op) -> Result<Box<Expr>, ParseError> {
-        Ok(Box::new(Expr::Prefix(ExprPrefix {
+        Ok(ExprPrefix::new(
             op,
-            right: self.parse_expr(Precedence::from(&self.current))?,
-        })))
+            self.parse_expr(self.current_token.precedence())?,
+        ))
     }
 
     /// Parses an if-else (or if-else-if) expression
     fn parse_if_expr(&mut self) -> Result<Box<Expr>, ParseError> {
         let condition = self.parse_expr(Precedence::Lowest)?;
         let consequence = self.parse_block_statement()?;
-        let alternative = if self.next == Token::Else {
+        let alternative = if self.next_token == Token::Else {
             self.skip(Token::Else)?;
 
-            if self.next == Token::If {
+            if self.next_token == Token::If {
                 Some(vec![self.parse_statement()?])
             } else {
                 Some(self.parse_block_statement()?)
@@ -191,31 +98,26 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let expr = Box::new(Expr::If(ExprIf {
-            condition,
-            consequence,
-            alternative,
-        }));
-        Ok(expr)
+        Ok(ExprIf::new(condition, consequence, alternative))
     }
 
     /// Assert next token is of the given type and skips it
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
-        if self.next != t {
+        if self.next_token != t {
             return Err(ParseError {
-                message: format!("Unexpected token: expected {:?}, got {:?}", t, self.next)
-                    ,
+                message: format!(
+                    "Unexpected token: expected {:?}, got {:?}",
+                    t, self.next_token
+                ),
             });
         }
-        assert_eq!(self.next, t);
         self.advance();
-
         Ok(())
     }
 
     /// Skips the next token if it is of the given type
     fn skip_optional(&mut self, t: Token) {
-        if self.next == t {
+        if self.next_token == t {
             self.advance()
         }
     }
@@ -224,25 +126,25 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, precedence: Precedence) -> Result<Box<Expr>, ParseError> {
         self.advance();
 
-        let mut left = match self.current {
-            Token::Int(s) => Box::new(Expr::Integer(s.parse().unwrap())),
-            Token::Float(s) => Box::new(Expr::Float(s.parse().unwrap())),
-            Token::True => Box::new(Expr::Boolean(true)),
-            Token::False => Box::new(Expr::Boolean(false)),
-            Token::String(s) => Box::new(Expr::String(s.to_owned())),
+        let mut left = match self.current_token {
+            Token::Int(s) => ExprInt::new(s.parse().unwrap()),
+            Token::Float(s) => ExprFloat::new(s.parse().unwrap()),
+            Token::True => ExprBool::new(true),
+            Token::False => ExprBool::new(false),
+            Token::String(s) => ExprString::new(s.to_owned()),
             Token::OpenParen => {
                 let expr = self.parse_expr(Precedence::Lowest)?;
                 self.skip(Token::CloseParen)?;
                 expr
             }
             Token::If => self.parse_if_expr()?,
-            Token::Bang | Token::Minus => self.parse_prefix_expr((&self.current).into())?,
-            _ => todo!("Unsupported expression type: {:?}", self.current),
+            Token::Bang | Token::Minus => self.parse_prefix_expr((&self.current_token).into())?,
+            _ => todo!("Unsupported expression type: {:?}", self.current_token),
         };
 
         // keep going
-        while self.next != Token::Semi && precedence < Precedence::from(&self.next) {
-            left = match self.next {
+        while self.next_token != Token::Semi && precedence < self.next_token.precedence() {
+            left = match self.next_token {
                 Token::Lt
                 | Token::Lte
                 | Token::Gt
@@ -272,7 +174,7 @@ impl<'a> Parser<'a> {
         let mut block = BlockStmt::with_capacity(64);
         self.skip(Token::OpenBrace)?;
 
-        while self.next != Token::Illegal && self.next != Token::CloseBrace {
+        while self.next_token != Token::Illegal && self.next_token != Token::CloseBrace {
             block.push(self.parse_statement()?);
             self.skip_optional(Token::Semi);
         }
@@ -292,7 +194,7 @@ pub(crate) fn parse(program: &str) -> Result<BlockStmt, ParseError> {
     let mut parser = Parser::new(program);
     let mut block = BlockStmt::with_capacity(64);
 
-    while parser.next != Token::Illegal {
+    while parser.next_token != Token::Illegal {
         block.push(parser.parse_statement()?);
         parser.skip_optional(Token::Semi);
     }
@@ -305,58 +207,124 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_bool_expression() {
+        assert_eq!(parse("ja").unwrap(), vec![Stmt::Expr(*ExprBool::new(true))]);
+        assert_eq!(
+            parse("nee").unwrap(),
+            vec![Stmt::Expr(*ExprBool::new(false))]
+        );
+    }
+
+    #[test]
+    fn test_int_expression() {
+        assert_eq!(parse("5").unwrap(), vec![Stmt::Expr(*ExprInt::new(5))])
+    }
+
+    #[test]
+    fn test_float_expression() {
+        assert_eq!(
+            parse("5.55").unwrap(),
+            vec![Stmt::Expr(*ExprFloat::new(5.55))]
+        )
+    }
+
+    #[test]
+    fn test_string_expressions() {
+        for (input, expected_ast) in [
+            ("\"foo\"", ExprString::new("foo".to_owned())),
+            ("\"foo bar\"", ExprString::new("foo bar".to_owned())),
+        ] {
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
+        }
+    }
+
+    #[test]
     fn test_infix_expressions() {
         for (input, expected_ast) in [
             (
                 "5 + 1",
-                Expr::Infix(ExprInfix {
-                    left: Box::new(Expr::Integer(5)),
-                    op: Op::Add,
-                    right: Box::new(Expr::Integer(1)),
-                }),
+                ExprInfix::new(ExprInt::new(5), Op::Add, ExprInt::new(1)),
             ),
             (
                 "5 - 1",
-                Expr::Infix(ExprInfix {
-                    left: Box::new(Expr::Integer(5)),
-                    op: Op::Subtract,
-                    right: Box::new(Expr::Integer(1)),
-                }),
+                ExprInfix::new(ExprInt::new(5), Op::Subtract, ExprInt::new(1)),
+            ),
+            (
+                "5 / 1",
+                ExprInfix::new(ExprInt::new(5), Op::Divide, ExprInt::new(1)),
+            ),
+            (
+                "5 * 1",
+                ExprInfix::new(ExprInt::new(5), Op::Multiply, ExprInt::new(1)),
+            ),
+            (
+                "5 % 1",
+                ExprInfix::new(ExprInt::new(5), Op::Modulo, ExprInt::new(1)),
+            ),
+            (
+                "5 > 1",
+                ExprInfix::new(ExprInt::new(5), Op::Gt, ExprInt::new(1)),
+            ),
+            (
+                "5 >= 1",
+                ExprInfix::new(ExprInt::new(5), Op::Gte, ExprInt::new(1)),
+            ),
+            (
+                "5 == 1",
+                ExprInfix::new(ExprInt::new(5), Op::Eq, ExprInt::new(1)),
+            ),
+            (
+                "5 != 1",
+                ExprInfix::new(ExprInt::new(5), Op::Neq, ExprInt::new(1)),
+            ),
+            (
+                "5 < 1",
+                ExprInfix::new(ExprInt::new(5), Op::Lt, ExprInt::new(1)),
+            ),
+            (
+                "5 <= 1",
+                ExprInfix::new(ExprInt::new(5), Op::Lte, ExprInt::new(1)),
+            ),
+            (
+                "5.55 + 1",
+                ExprInfix::new(ExprFloat::new(5.55), Op::Add, ExprInt::new(1)),
+            ),
+            (
+                "5.55 - 1",
+                ExprInfix::new(ExprFloat::new(5.55), Op::Subtract, ExprInt::new(1)),
+            ),
+            (
+                "5.55 / 1",
+                ExprInfix::new(ExprFloat::new(5.55), Op::Divide, ExprInt::new(1)),
+            ),
+            (
+                "5.55 * 1",
+                ExprInfix::new(ExprFloat::new(5.55), Op::Multiply, ExprInt::new(1)),
+            ),
+            (
+                "5.55 % 1",
+                ExprInfix::new(ExprFloat::new(5.55), Op::Modulo, ExprInt::new(1)),
             ),
             (
                 "5 * ( 1 + 1 )",
-                Expr::Infix(ExprInfix {
-                    left: Box::new(Expr::Integer(5)),
-                    op: Op::Multiply,
-                    right: Box::new(Expr::Infix(ExprInfix {
-                        left: Box::new(Expr::Integer(1)),
-                        op: Op::Add,
-                        right: Box::new(Expr::Integer(1)),
-                    })),
-                }),
+                ExprInfix::new(
+                    ExprInt::new(5),
+                    Op::Multiply,
+                    ExprInfix::new(ExprInt::new(1), Op::Add, ExprInt::new(1)),
+                ),
             ),
         ] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
         }
     }
 
     #[test]
     fn test_prefix_expressions() {
-        for (input, expected_ast) in [(
-            "! ja",
-            Expr::Prefix(ExprPrefix {
-                op: Op::Negate,
-                right: Box::new(Expr::Boolean(true)),
-            }),
-        )] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
-        }
-    }
-
-    #[test]
-    fn test_string_expressions() {
-        for (input, expected_ast) in [("\"Wilhelmus\"", Expr::String("Wilhelmus".to_owned()))] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
+        for (input, expected_ast) in [
+            ("! ja", ExprPrefix::new(Op::Negate, ExprBool::new(true))),
+            ("-100", ExprPrefix::new(Op::Subtract, ExprInt::new(100))),
+        ] {
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
         }
     }
 }

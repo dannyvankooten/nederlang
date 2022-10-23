@@ -11,7 +11,6 @@ pub enum NlObject {
     Float(f64),
     Bool(bool),
     String(String),
-    Error(&'static str),
 }
 
 impl NlObject {

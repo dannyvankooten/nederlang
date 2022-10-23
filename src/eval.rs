@@ -1,5 +1,8 @@
+use crate::ast::{
+    BlockStmt, Expr, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix, ExprString, Op,
+    Stmt,
+};
 use crate::object::*;
-use crate::parser::{BlockStmt, Expr, ExprIf, ExprInfix, ExprPrefix, Op, Stmt};
 
 pub(crate) trait Eval {
     fn eval(&self) -> NlObject;
@@ -77,16 +80,41 @@ impl Eval for BlockStmt {
         last
     }
 }
+
+impl Eval for ExprInt {
+    fn eval(&self) -> NlObject {
+        NlObject::Int(self.value)
+    }
+}
+
+impl Eval for ExprFloat {
+    fn eval(&self) -> NlObject {
+        NlObject::Float(self.value)
+    }
+}
+
+impl Eval for ExprBool {
+    fn eval(&self) -> NlObject {
+        NlObject::Bool(self.value)
+    }
+}
+
+impl Eval for ExprString {
+    fn eval(&self) -> NlObject {
+        NlObject::String(self.value.to_owned())
+    }
+}
+
 impl Eval for Expr {
     fn eval(&self) -> NlObject {
         match self {
             Expr::Infix(expr) => expr.eval(),
             Expr::Prefix(expr) => expr.eval(),
             Expr::If(expr) => expr.eval(),
-            Expr::Integer(v) => NlObject::Int(*v),
-            Expr::Float(v) => NlObject::Float(*v),
-            Expr::Boolean(v) => NlObject::Bool(*v),
-            Expr::String(v) => NlObject::String(v.to_owned()),
+            Expr::Int(expr) => expr.eval(),
+            Expr::Float(expr) => expr.eval(),
+            Expr::Bool(expr) => expr.eval(),
+            Expr::String(expr) => expr.eval(),
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
                 self
