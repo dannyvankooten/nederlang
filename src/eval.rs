@@ -209,6 +209,16 @@ mod tests {
             assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
         }
     }
+
+    #[test]
+    fn test_if_else_if_expression() {
+        for (input, expected) in [
+            ("als 1 > 2 { 1 } anders als 2 > 1 { 2 }", NlObject::Int(2)),
+            ("als 1 > 2 { 1 } anders als 2 > 3 { 2 } anders { 3 }", NlObject::Int(3)),
+        ] {
+            assert_eq!(expected, parse(input).unwrap().eval(), "eval input: {}", input);
+        }
+    }
     
 
     #[bench]

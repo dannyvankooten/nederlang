@@ -50,7 +50,6 @@ pub(crate) enum Stmt {
 }
 
 pub(crate) type BlockStmt = Vec<Stmt>;
-pub(crate) type Program = BlockStmt;
 
 #[derive(PartialEq, Eq, Debug)]
 pub(crate) enum Op {
@@ -154,26 +153,50 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an operator token
-    fn op(&mut self) -> Op {
+    fn parse_operator(&mut self) -> Op {
         self.advance();
         Op::from(&self.current)
     }
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
-    fn infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
+    fn parse_infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
         return Ok(Box::new(Expr::Infix(ExprInfix {
             left,
-            op: self.op(),
-            right: self.expr(Precedence::from(&self.current))?,
+            op: self.parse_operator(),
+            right: self.parse_expr(Precedence::from(&self.current))?,
         })));
     }
 
     /// Parses a prefix expression, like [Token::Minus, Token::Int(5)]
-    fn prefix(&mut self, op: Op) -> Result<Box<Expr>, ParseError> {
+    fn parse_prefix_expr(&mut self, op: Op) -> Result<Box<Expr>, ParseError> {
         return Ok(Box::new(Expr::Prefix(ExprPrefix {
             op: op,
-            right: self.expr(Precedence::from(&self.current))?,
+            right: self.parse_expr(Precedence::from(&self.current))?,
         })));
+    }
+
+    /// Parses an if-else (or if-else-if) expression
+    fn parse_if_expr(&mut self) -> Result<Box<Expr>, ParseError> {
+        let condition = self.parse_expr(Precedence::Lowest)?;
+        let consequence = self.parse_block_statement()?;
+        let mut alternative = None;
+
+        if self.next == Token::Else {
+            self.skip(Token::Else)?;
+
+            if self.next == Token::If {
+                alternative = Some(vec![self.parse_statement()?]);
+            } else {
+                alternative = Some(self.parse_block_statement()?);
+            }
+        }
+
+        let expr = Box::new( Expr::If(ExprIf{
+           condition,
+           consequence,
+           alternative,
+        }));
+        Ok(expr)
     }
 
     /// Assert next token is of the given type and skips it
@@ -195,7 +218,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse an expression
-    fn expr(&mut self, precedence: Precedence) -> Result<Box<Expr>, ParseError> {
+    fn parse_expr(&mut self, precedence: Precedence) -> Result<Box<Expr>, ParseError> {
         self.advance();
 
         let mut left = match self.current {
@@ -205,29 +228,12 @@ impl<'a> Parser<'a> {
             Token::False => Box::new(Expr::Boolean(false)),
             Token::String(s) => Box::new(Expr::String(s.to_owned())),
             Token::OpenParen => {
-                let expr = self.expr(Precedence::Lowest)?;
-                // skip closing parenthesis
+                let expr = self.parse_expr(Precedence::Lowest)?;
                 self.skip(Token::CloseParen)?;
                 expr
             }
-            Token::If => {
-                let condition = self.expr(Precedence::Lowest)?;
-                let consequence = self.block_statement()?;
-                let mut alternative = None;
-
-                if self.next == Token::Else {
-                    self.skip(Token::Else)?;
-                    alternative = Some(self.block_statement()?);
-                }
-
-                let expr = Box::new( Expr::If(ExprIf{
-                   condition,
-                   consequence,
-                   alternative,
-                }));
-                expr
-            },
-            Token::Bang | Token::Minus => self.prefix((&self.current).into())?,
+            Token::If => self.parse_if_expr()?,
+            Token::Bang | Token::Minus => self.parse_prefix_expr((&self.current).into())?,
             _ => todo!("Unsupported expression type: {:?}", self.current),
         };
 
@@ -244,7 +250,7 @@ impl<'a> Parser<'a> {
                 | Token::Minus
                 | Token::Slash
                 | Token::Star
-                | Token::Percent => self.infix_expr(left)?,
+                | Token::Percent => self.parse_infix_expr(left)?,
                 _ => return Ok(left),
             };
         }
@@ -253,18 +259,18 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a single statement
-    fn statement(&mut self) -> Result<Stmt, ParseError> {
-        return Ok(Stmt::Expr(*self.expr(Precedence::Lowest)?));
+    fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
+        return Ok(Stmt::Expr(*self.parse_expr(Precedence::Lowest)?));
     }
 
     /// Parse a block (surrounded by curly braces)
     /// Can be an unnamed block, function body, if consequence, etc.
-    fn block_statement(&mut self) -> Result<BlockStmt, ParseError> {
+    fn parse_block_statement(&mut self) -> Result<BlockStmt, ParseError> {
         let mut block = BlockStmt::with_capacity(64);
         self.skip(Token::OpenBrace)?;
 
         while self.next != Token::Illegal && self.next != Token::CloseBrace {
-            block.push(self.statement()?);
+            block.push(self.parse_statement()?);
             self.maybe_skip(Token::Semi);
         }
 
@@ -284,7 +290,7 @@ pub(crate) fn parse(program: &str) -> Result<BlockStmt, ParseError> {
     let mut block = BlockStmt::with_capacity(64);
 
     while parser.next != Token::Illegal {
-        block.push(parser.statement()?);
+        block.push(parser.parse_statement()?);
         parser.maybe_skip(Token::Semi);
     }
 
