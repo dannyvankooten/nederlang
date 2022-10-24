@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-
 use crate::ast::{
     BlockStmt, Expr, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix, ExprString,
     Operator, Stmt,
 };
 use crate::object::*;
 use crate::parser;
+use std::cell::RefCell;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Environment<'a> {
-    symbol_table: HashMap<String, NlObject>,
+    symbols: RefCell<HashMap<String, NlObject>>,
     outer: Option<&'a Environment<'a>>,
 }
 
@@ -20,21 +20,22 @@ pub(crate) trait Eval {
 impl<'a> Environment<'a> {
     pub fn new() -> Self {
         Environment {
-            symbol_table: HashMap::new(),
+            symbols: RefCell::new(HashMap::with_capacity(8)),
             outer: None,
         }
     }
 
-    pub fn new_from(env: &'a mut Environment<'_>) -> Self {
+    pub fn new_from(env: &'a Environment<'_>) -> Self {
         Environment {
-            symbol_table: HashMap::new(),
+            symbols: RefCell::new(HashMap::with_capacity(8)),
             outer: Some(env),
         }
     }
 
     pub fn resolve(&self, ident: &str) -> NlObject {
-        if self.symbol_table.contains_key(ident) {
-            return self.symbol_table.get(ident).unwrap().clone();
+        let hm = self.symbols.borrow();
+        if let Some(value) = hm.get(ident) {
+            return value.clone();
         }
 
         if let Some(outer) = &self.outer {
@@ -44,18 +45,20 @@ impl<'a> Environment<'a> {
         NlObject::Null
     }
 
-    pub fn insert(&mut self, ident: &str, value: NlObject) {
-        self.symbol_table.insert(ident.to_owned(), value);
+    pub fn insert(&self, ident: &str, value: NlObject) {
+        self.symbols.borrow_mut().insert(ident.to_owned(), value);
     }
 
-    pub fn update(&mut self, ident: &str, value: NlObject) {
-        if self.symbol_table.contains_key(ident) {
-            self.insert(ident, value)
-        }
+    pub fn update(&self, ident: &str, value: NlObject) {
+        let mut hm = self.symbols.borrow_mut();
 
-        // if let Some(outer) = self.outer {
-        //     return outer.update(ident, value);
-        // }
+        if let Some(old_value) = hm.get_mut(ident) {
+            *old_value = value;
+        } else {
+            if let Some(outer) = &self.outer {
+                return outer.update(ident, value);
+            }
+        }
     }
 }
 
@@ -365,6 +368,18 @@ mod tests {
                 "als 1 > 2 { 1 } anders als 2 > 3 { 2 } anders { 3 }",
                 NlObject::Int(3),
             ),
+        ] {
+            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_declare_statements_with_scopes() {
+        for (input, expected) in [
+            ("stel a = 1; { a =  2; } a", NlObject::Int(2)),
+            ("{ stel b = 1; } b", NlObject::Null),
+            ("stel a = 1; { stel a = 2; } a", NlObject::Int(1)),
+            ("stel a = 1; { stel b = 1; a = a + b; } a", NlObject::Int(2)),
         ] {
             assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
         }
