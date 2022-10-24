@@ -171,26 +171,26 @@ impl Eval for BlockStmt {
     }
 }
 
-impl Eval for ExprInt {
-    fn eval(&self, _: &mut Environment) -> NlObject {
+impl ExprInt {
+    fn eval(&self) -> NlObject {
         NlObject::Int(self.value)
     }
 }
 
-impl Eval for ExprFloat {
-    fn eval(&self, _: &mut Environment) -> NlObject {
+impl ExprFloat {
+    fn eval(&self) -> NlObject {
         NlObject::Float(self.value)
     }
 }
 
-impl Eval for ExprBool {
-    fn eval(&self, _: &mut Environment) -> NlObject {
+impl ExprBool {
+    fn eval(&self) -> NlObject {
         NlObject::Bool(self.value)
     }
 }
 
-impl Eval for ExprString {
-    fn eval(&self, _: &mut Environment) -> NlObject {
+impl ExprString {
+    fn eval(&self) -> NlObject {
         NlObject::String(self.value.to_owned())
     }
 }
@@ -201,10 +201,10 @@ impl Eval for Expr {
             Expr::Infix(expr) => expr.eval(env),
             Expr::Prefix(expr) => expr.eval(env),
             Expr::If(expr) => expr.eval(env),
-            Expr::Int(expr) => expr.eval(env),
-            Expr::Float(expr) => expr.eval(env),
-            Expr::Bool(expr) => expr.eval(env),
-            Expr::String(expr) => expr.eval(env),
+            Expr::Int(expr) => expr.eval(),
+            Expr::Float(expr) => expr.eval(),
+            Expr::Bool(expr) => expr.eval(),
+            Expr::String(expr) => expr.eval(),
             Expr::Identifier(name) => env.resolve(name),
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
