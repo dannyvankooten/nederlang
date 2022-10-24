@@ -1,5 +1,5 @@
 use crate::ast::{
-    BlockStmt, Expr, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix, ExprString, Op,
+    BlockStmt, Expr, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix, ExprString, Operator,
     Stmt,
 };
 use crate::object::*;
@@ -13,21 +13,21 @@ impl Eval for ExprInfix {
         let left = self.left.eval();
         let right = self.right.eval();
 
-        match &self.op {
-            Op::Add => left + right,
-            Op::Subtract => left - right,
-            Op::Multiply => left * right,
-            Op::Divide => left / right,
-            Op::Modulo => left % right,
-            Op::Gt => NlObject::Bool(left > right),
-            Op::Gte => NlObject::Bool(left >= right),
-            Op::Lt => NlObject::Bool(left < right),
-            Op::Lte => NlObject::Bool(left >= right),
-            Op::Eq => NlObject::Bool(left == right),
-            Op::Neq => NlObject::Bool(left != right),
+        match &self.operator {
+            Operator::Add => left + right,
+            Operator::Subtract => left - right,
+            Operator::Multiply => left * right,
+            Operator::Divide => left / right,
+            Operator::Modulo => left % right,
+            Operator::Gt => NlObject::Bool(left > right),
+            Operator::Gte => NlObject::Bool(left >= right),
+            Operator::Lt => NlObject::Bool(left < right),
+            Operator::Lte => NlObject::Bool(left >= right),
+            Operator::Eq => NlObject::Bool(left == right),
+            Operator::Neq => NlObject::Bool(left != right),
             _ => unimplemented!(
                 "Infix expressions with operator {:?} are not implemented.",
-                &self.op
+                &self.operator
             ),
         }
     }
@@ -37,12 +37,12 @@ impl Eval for ExprPrefix {
     fn eval(&self) -> NlObject {
         let right = self.right.eval();
 
-        match &self.op {
-            Op::Negate => !right,
-            Op::Subtract => -right,
+        match &self.operator {
+            Operator::Negate => !right,
+            Operator::Subtract => -right,
             _ => unimplemented!(
                 "Infix expressions with operator {:?} are not implemented.",
-                &self.op
+                &self.operator
             ),
         }
     }
@@ -138,6 +138,21 @@ mod tests {
             ("6 * 2", NlObject::Int(12)),
             ("6 / 2", NlObject::Int(3)),
             ("6 % 2", NlObject::Int(0)),
+        ] {
+            assert_eq!(
+                expected,
+                parse(input).unwrap().eval(),
+                "eval input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_int_arithmetic_with_precedence() {
+        for (input, expected) in [
+            ("6 + 2 * 5", NlObject::Int(16)),
+            ("6 + 2 * 5 / 5", NlObject::Int(8)),
         ] {
             assert_eq!(
                 expected,

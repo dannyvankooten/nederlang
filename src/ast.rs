@@ -22,7 +22,7 @@ pub(crate) enum Expr {
 #[derive(PartialEq, Debug)]
 pub(crate) struct ExprInfix {
     pub(crate) left: Box<Expr>,
-    pub(crate) op: Op,
+    pub(crate) operator: Operator,
     pub(crate) right: Box<Expr>,
 }
 
@@ -48,7 +48,7 @@ pub(crate) struct ExprString {
 
 #[derive(PartialEq, Debug)]
 pub(crate) struct ExprPrefix {
-    pub(crate) op: Op,
+    pub(crate) operator: Operator,
     pub(crate) right: Box<Expr>,
 }
 
@@ -61,7 +61,7 @@ pub(crate) struct ExprIf {
 
 #[derive(PartialEq, Debug)]
 pub(crate) enum Stmt {
-    // Let(String, Expr),
+    Let(String, Expr),
     // Return(Expr),
     Expr(Expr),
     // Break,
@@ -71,7 +71,7 @@ pub(crate) enum Stmt {
 pub(crate) type BlockStmt = Vec<Stmt>;
 
 #[derive(PartialEq, Eq, Debug)]
-pub(crate) enum Op {
+pub(crate) enum Operator {
     Add,
     Subtract,
     Multiply,
@@ -88,23 +88,23 @@ pub(crate) enum Op {
     Modulo,
 }
 
-impl From<&Token<'_>> for Op {
+impl From<&Token<'_>> for Operator {
     fn from(value: &Token) -> Self {
         match value {
-            Token::Plus => Op::Add,
-            Token::Minus => Op::Subtract,
-            Token::Slash => Op::Divide,
-            Token::Star => Op::Multiply,
-            Token::Percent => Op::Modulo,
-            Token::And => Op::And,
-            Token::Or => Op::Or,
-            Token::Gt => Op::Gt,
-            Token::Gte => Op::Gte,
-            Token::Lt => Op::Lt,
-            Token::Lte => Op::Lte,
-            Token::Eq => Op::Eq,
-            Token::Neq => Op::Neq,
-            Token::Bang => Op::Negate,
+            Token::Plus => Operator::Add,
+            Token::Minus => Operator::Subtract,
+            Token::Slash => Operator::Divide,
+            Token::Star => Operator::Multiply,
+            Token::Percent => Operator::Modulo,
+            Token::And => Operator::And,
+            Token::Or => Operator::Or,
+            Token::Gt => Operator::Gt,
+            Token::Gte => Operator::Gte,
+            Token::Lt => Operator::Lt,
+            Token::Lte => Operator::Lte,
+            Token::Eq => Operator::Eq,
+            Token::Neq => Operator::Neq,
+            Token::Bang => Operator::Negate,
             _ => unimplemented!(
                 "Parsing token {:?} into operator is not implemented.",
                 value
@@ -114,14 +114,14 @@ impl From<&Token<'_>> for Op {
 }
 
 impl ExprPrefix {
-    pub fn new(op: Op, right: Box<Expr>) -> Box<Expr> {
-        Box::new(Expr::Prefix(ExprPrefix { op, right }))
+    pub fn new(operator: Operator, right: Box<Expr>) -> Box<Expr> {
+        Box::new(Expr::Prefix(ExprPrefix { operator, right }))
     }
 }
 
 impl ExprInfix {
-    pub fn new(left: Box<Expr>, op: Op, right: Box<Expr>) -> Box<Expr> {
-        Box::new(Expr::Infix(ExprInfix { left, op, right }))
+    pub fn new(left: Box<Expr>, operator: Operator, right: Box<Expr>) -> Box<Expr> {
+        Box::new(Expr::Infix(ExprInfix { left, operator, right }))
     }
 }
 
