@@ -8,7 +8,7 @@ pub(crate) enum Expr {
     Float(ExprFloat),
     Bool(ExprBool),
     If(ExprIf),
-    Identifier,
+    Identifier(String),
     Function,
     Call,
     String(ExprString),
@@ -64,6 +64,7 @@ pub(crate) enum Stmt {
     Let(String, Expr),
     // Return(Expr),
     Expr(Expr),
+    Block(BlockStmt),
     // Break,
     // Continue,
 }
@@ -86,6 +87,7 @@ pub(crate) enum Operator {
     And,
     Or,
     Modulo,
+    Assign,
 }
 
 impl From<&Token<'_>> for Operator {
@@ -105,6 +107,7 @@ impl From<&Token<'_>> for Operator {
             Token::Eq => Operator::Eq,
             Token::Neq => Operator::Neq,
             Token::Bang => Operator::Negate,
+            Token::Assign => Operator::Assign,
             _ => unimplemented!(
                 "Parsing token {:?} into operator is not implemented.",
                 value
@@ -115,22 +118,25 @@ impl From<&Token<'_>> for Operator {
 
 impl ExprPrefix {
     pub fn new(operator: Operator, right: Expr) -> Expr {
-        Expr::Prefix(ExprPrefix { operator, right: Box::new(right) })
+        Expr::Prefix(ExprPrefix {
+            operator,
+            right: Box::new(right),
+        })
     }
 }
 
 impl ExprInfix {
     pub fn new(left: Expr, operator: Operator, right: Expr) -> Expr {
-        Expr::Infix(ExprInfix { left: Box::new(left), operator, right: Box::new(right) })
+        Expr::Infix(ExprInfix {
+            left: Box::new(left),
+            operator,
+            right: Box::new(right),
+        })
     }
 }
 
 impl ExprIf {
-    pub fn new(
-        condition: Expr,
-        consequence: BlockStmt,
-        alternative: Option<BlockStmt>,
-    ) -> Expr {
+    pub fn new(condition: Expr, consequence: BlockStmt, alternative: Option<BlockStmt>) -> Expr {
         Expr::If(ExprIf {
             condition: Box::new(condition),
             consequence,

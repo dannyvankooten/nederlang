@@ -1,9 +1,5 @@
 use std::ops;
 
-pub enum Error {
-    TypeError,
-}
-
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub enum NlObject {
     Null,

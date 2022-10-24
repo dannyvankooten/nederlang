@@ -75,10 +75,7 @@ impl<'a> Parser<'a> {
         let operator = self.parse_operator();
         let precedence = self.current_token.precedence();
         self.advance();
-        Ok(ExprPrefix::new(
-            operator,
-            self.parse_expr(precedence)?,
-        ))
+        Ok(ExprPrefix::new(operator, self.parse_expr(precedence)?))
     }
 
     /// Parses an if-else (or if-else-if) expression
@@ -124,17 +121,17 @@ impl<'a> Parser<'a> {
 
     fn parse_int_expression(&mut self, strval: &str) -> Expr {
         self.advance();
-        ExprInt::new(strval.parse().unwrap()) 
+        ExprInt::new(strval.parse().unwrap())
     }
 
     fn parse_float_expression(&mut self, strval: &str) -> Expr {
         self.advance();
-        ExprFloat::new(strval.parse().unwrap()) 
+        ExprFloat::new(strval.parse().unwrap())
     }
 
     fn parse_bool_expression(&mut self, value: bool) -> Expr {
         self.advance();
-        ExprBool::new(value) 
+        ExprBool::new(value)
     }
 
     fn parse_string_expression(&mut self, value: &str) -> Expr {
@@ -158,6 +155,11 @@ impl<'a> Parser<'a> {
             }
             Token::If => self.parse_if_expr()?,
             Token::Bang | Token::Minus => self.parse_prefix_expr()?,
+            Token::Identifier(name) => {
+                let expr = Expr::Identifier(name.to_owned());
+                self.advance();
+                expr
+            }
             _ => todo!("Unsupported expression type: {:?}", self.current_token),
         };
 
@@ -174,9 +176,8 @@ impl<'a> Parser<'a> {
                 | Token::Minus
                 | Token::Slash
                 | Token::Star
-                | Token::Percent => {
-                    self.parse_infix_expr(left)?
-                },
+                | Token::Percent
+                | Token::Assign => self.parse_infix_expr(left)?,
                 _ => return Ok(left),
             };
         }
@@ -192,7 +193,10 @@ impl<'a> Parser<'a> {
 
                 let identifier = match self.current_token {
                     Token::Identifier(name) => Ok(name.to_owned()),
-                    _ => Err(ParseError::new(format!("Expected identifier, got {:?}", self.current_token))),
+                    _ => Err(ParseError::new(format!(
+                        "Expected identifier, got {:?}",
+                        self.current_token
+                    ))),
                 }?;
                 self.advance();
 
@@ -201,8 +205,9 @@ impl<'a> Parser<'a> {
 
                 let value = self.parse_expr(Precedence::Lowest)?;
                 Stmt::Let(identifier, value)
-            },
-            _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?)
+            }
+            Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
+            _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
         };
 
         self.skip_optional(Token::Semi);
@@ -264,8 +269,10 @@ mod tests {
     #[test]
     fn test_int_expression() {
         assert_eq!(parse("5").unwrap(), vec![Stmt::Expr(ExprInt::new(5))]);
-        assert_eq!(parse("1; 2").unwrap(), vec![Stmt::Expr(ExprInt::new(1)), Stmt::Expr(ExprInt::new(2))]);
-
+        assert_eq!(
+            parse("1; 2").unwrap(),
+            vec![Stmt::Expr(ExprInt::new(1)), Stmt::Expr(ExprInt::new(2))]
+        );
     }
 
     #[test]
@@ -369,8 +376,14 @@ mod tests {
     #[test]
     fn test_prefix_expressions() {
         for (input, expected_ast) in [
-            ("! ja", ExprPrefix::new(Operator::Negate, ExprBool::new(true))),
-            ("-100", ExprPrefix::new(Operator::Subtract, ExprInt::new(100))),
+            (
+                "! ja",
+                ExprPrefix::new(Operator::Negate, ExprBool::new(true)),
+            ),
+            (
+                "-100",
+                ExprPrefix::new(Operator::Subtract, ExprInt::new(100)),
+            ),
         ] {
             assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
@@ -379,12 +392,18 @@ mod tests {
     #[test]
     fn test_if_expressions() {
         for (input, expected_ast) in [
-            ("als ja { 1 }", ExprIf::new(ExprBool::new(true), vec![Stmt::Expr(ExprInt::new(1))], None)),
-            ("als ja { 1 } anders { 2 }", ExprIf::new(
-                ExprBool::new(true), 
-                vec![Stmt::Expr(ExprInt::new(1))], 
-                Some(vec![Stmt::Expr(ExprInt::new(2))])),
-            )
+            (
+                "als ja { 1 }",
+                ExprIf::new(ExprBool::new(true), vec![Stmt::Expr(ExprInt::new(1))], None),
+            ),
+            (
+                "als ja { 1 } anders { 2 }",
+                ExprIf::new(
+                    ExprBool::new(true),
+                    vec![Stmt::Expr(ExprInt::new(1))],
+                    Some(vec![Stmt::Expr(ExprInt::new(2))]),
+                ),
+            ),
         ] {
             assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
@@ -394,8 +413,48 @@ mod tests {
     fn test_declare_statements() {
         for (input, expected_ast) in [
             ("stel x = 100", Stmt::Let("x".to_owned(), ExprInt::new(100))),
+            (
+                "stel x = 100;",
+                Stmt::Let("x".to_owned(), ExprInt::new(100)),
+            ),
         ] {
             assert_eq!(parse(input).unwrap(), vec![expected_ast])
+        }
+    }
+
+    #[test]
+    fn test_assign_expressions() {
+        for (input, expected_ast) in [(
+            "stel a = 1; a = 2;",
+            vec![
+                Stmt::Let("a".to_owned(), ExprInt::new(1)),
+                Stmt::Expr(ExprInfix::new(
+                    Expr::Identifier("a".to_owned()),
+                    Operator::Assign,
+                    ExprInt::new(2),
+                )),
+            ],
+        )] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_ident_expression() {
+        for (input, expected_ast) in [
+            (
+                "foo",
+                vec![Stmt::Expr(Expr::Identifier(String::from("foo")))],
+            ),
+            (
+                "foo; bar",
+                vec![
+                    Stmt::Expr(Expr::Identifier(String::from("foo"))),
+                    Stmt::Expr(Expr::Identifier(String::from("bar"))),
+                ],
+            ),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
         }
     }
 }
