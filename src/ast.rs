@@ -114,51 +114,51 @@ impl From<&Token<'_>> for Operator {
 }
 
 impl ExprPrefix {
-    pub fn new(operator: Operator, right: Box<Expr>) -> Box<Expr> {
-        Box::new(Expr::Prefix(ExprPrefix { operator, right }))
+    pub fn new(operator: Operator, right: Expr) -> Expr {
+        Expr::Prefix(ExprPrefix { operator, right: Box::new(right) })
     }
 }
 
 impl ExprInfix {
-    pub fn new(left: Box<Expr>, operator: Operator, right: Box<Expr>) -> Box<Expr> {
-        Box::new(Expr::Infix(ExprInfix { left, operator, right }))
+    pub fn new(left: Expr, operator: Operator, right: Expr) -> Expr {
+        Expr::Infix(ExprInfix { left: Box::new(left), operator, right: Box::new(right) })
     }
 }
 
 impl ExprIf {
     pub fn new(
-        condition: Box<Expr>,
+        condition: Expr,
         consequence: BlockStmt,
         alternative: Option<BlockStmt>,
-    ) -> Box<Expr> {
-        Box::new(Expr::If(ExprIf {
-            condition,
+    ) -> Expr {
+        Expr::If(ExprIf {
+            condition: Box::new(condition),
             consequence,
             alternative,
-        }))
+        })
     }
 }
 
 impl ExprInt {
-    pub fn new(value: i64) -> Box<Expr> {
-        Box::new(Expr::Int(ExprInt { value }))
+    pub fn new(value: i64) -> Expr {
+        Expr::Int(ExprInt { value })
     }
 }
 
 impl ExprFloat {
-    pub fn new(value: f64) -> Box<Expr> {
-        Box::new(Expr::Float(ExprFloat { value }))
+    pub fn new(value: f64) -> Expr {
+        Expr::Float(ExprFloat { value })
     }
 }
 
 impl ExprBool {
-    pub fn new(value: bool) -> Box<Expr> {
-        Box::new(Expr::Bool(ExprBool { value }))
+    pub fn new(value: bool) -> Expr {
+        Expr::Bool(ExprBool { value })
     }
 }
 
 impl ExprString {
-    pub fn new(value: String) -> Box<Expr> {
-        Box::new(Expr::String(ExprString { value }))
+    pub fn new(value: String) -> Expr {
+        Expr::String(ExprString { value })
     }
 }

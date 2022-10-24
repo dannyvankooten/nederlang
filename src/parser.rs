@@ -1,6 +1,5 @@
 use crate::ast::*;
 use crate::lexer::{Token, Tokenizer};
-use std::boxed::Box;
 
 /// Token precedence used for Exprs
 /// The order here is important!
@@ -63,7 +62,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
-    fn parse_infix_expr(&mut self, left: Box<Expr>) -> Result<Box<Expr>, ParseError> {
+    fn parse_infix_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
         let operator = self.parse_operator();
         let precedence = self.current_token.precedence();
         self.advance();
@@ -72,7 +71,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a prefix expression, like [Token::Minus, Token::Int(5)]
-    fn parse_prefix_expr(&mut self) -> Result<Box<Expr>, ParseError> {
+    fn parse_prefix_expr(&mut self) -> Result<Expr, ParseError> {
         let operator = self.parse_operator();
         let precedence = self.current_token.precedence();
         self.advance();
@@ -83,7 +82,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an if-else (or if-else-if) expression
-    fn parse_if_expr(&mut self) -> Result<Box<Expr>, ParseError> {
+    fn parse_if_expr(&mut self) -> Result<Expr, ParseError> {
         // skip over IF token
         self.advance();
 
@@ -123,28 +122,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_int_expression(&mut self, strval: &str) -> Box<Expr> {
+    fn parse_int_expression(&mut self, strval: &str) -> Expr {
         self.advance();
         ExprInt::new(strval.parse().unwrap()) 
     }
 
-    fn parse_float_expression(&mut self, strval: &str) -> Box<Expr> {
+    fn parse_float_expression(&mut self, strval: &str) -> Expr {
         self.advance();
         ExprFloat::new(strval.parse().unwrap()) 
     }
 
-    fn parse_bool_expression(&mut self, value: bool) -> Box<Expr> {
+    fn parse_bool_expression(&mut self, value: bool) -> Expr {
         self.advance();
         ExprBool::new(value) 
     }
 
-    fn parse_string_expression(&mut self, value: &str) -> Box<Expr> {
+    fn parse_string_expression(&mut self, value: &str) -> Expr {
         self.advance();
         ExprString::new(value.to_owned())
     }
 
     /// Parse an expression
-    fn parse_expr(&mut self, precedence: Precedence) -> Result<Box<Expr>, ParseError> {
+    fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
         let mut left = match self.current_token {
             Token::Int(s) => self.parse_int_expression(s),
             Token::Float(s) => self.parse_float_expression(s),
@@ -201,9 +200,9 @@ impl<'a> Parser<'a> {
                 self.skip(Token::Assign)?;
 
                 let value = self.parse_expr(Precedence::Lowest)?;
-                Stmt::Let(identifier, *value)
+                Stmt::Let(identifier, value)
             },
-            _ => Stmt::Expr(*self.parse_expr(Precedence::Lowest)?)
+            _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?)
         };
 
         self.skip_optional(Token::Semi);
@@ -255,17 +254,17 @@ mod tests {
 
     #[test]
     fn test_bool_expression() {
-        assert_eq!(parse("ja").unwrap(), vec![Stmt::Expr(*ExprBool::new(true))]);
+        assert_eq!(parse("ja").unwrap(), vec![Stmt::Expr(ExprBool::new(true))]);
         assert_eq!(
             parse("nee").unwrap(),
-            vec![Stmt::Expr(*ExprBool::new(false))]
+            vec![Stmt::Expr(ExprBool::new(false))]
         );
     }
 
     #[test]
     fn test_int_expression() {
-        assert_eq!(parse("5").unwrap(), vec![Stmt::Expr(*ExprInt::new(5))]);
-        assert_eq!(parse("1; 2").unwrap(), vec![Stmt::Expr(*ExprInt::new(1)), Stmt::Expr(*ExprInt::new(2))]);
+        assert_eq!(parse("5").unwrap(), vec![Stmt::Expr(ExprInt::new(5))]);
+        assert_eq!(parse("1; 2").unwrap(), vec![Stmt::Expr(ExprInt::new(1)), Stmt::Expr(ExprInt::new(2))]);
 
     }
 
@@ -273,7 +272,7 @@ mod tests {
     fn test_float_expression() {
         assert_eq!(
             parse("5.55").unwrap(),
-            vec![Stmt::Expr(*ExprFloat::new(5.55))]
+            vec![Stmt::Expr(ExprFloat::new(5.55))]
         )
     }
 
@@ -283,7 +282,7 @@ mod tests {
             ("\"foo\"", ExprString::new("foo".to_owned())),
             ("\"foo bar\"", ExprString::new("foo bar".to_owned())),
         ] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
@@ -363,7 +362,7 @@ mod tests {
                 ),
             ),
         ] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
@@ -373,28 +372,28 @@ mod tests {
             ("! ja", ExprPrefix::new(Operator::Negate, ExprBool::new(true))),
             ("-100", ExprPrefix::new(Operator::Subtract, ExprInt::new(100))),
         ] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
     #[test]
     fn test_if_expressions() {
         for (input, expected_ast) in [
-            ("als ja { 1 }", ExprIf::new(ExprBool::new(true), vec![Stmt::Expr(*ExprInt::new(1))], None)),
+            ("als ja { 1 }", ExprIf::new(ExprBool::new(true), vec![Stmt::Expr(ExprInt::new(1))], None)),
             ("als ja { 1 } anders { 2 }", ExprIf::new(
                 ExprBool::new(true), 
-                vec![Stmt::Expr(*ExprInt::new(1))], 
-                Some(vec![Stmt::Expr(*ExprInt::new(2))])),
+                vec![Stmt::Expr(ExprInt::new(1))], 
+                Some(vec![Stmt::Expr(ExprInt::new(2))])),
             )
         ] {
-            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(*expected_ast)])
+            assert_eq!(parse(input).unwrap(), vec![Stmt::Expr(expected_ast)])
         }
     }
 
     #[test]
     fn test_declare_statements() {
         for (input, expected_ast) in [
-            ("stel x = 100", Stmt::Let("x".to_owned(), *ExprInt::new(100))),
+            ("stel x = 100", Stmt::Let("x".to_owned(), ExprInt::new(100))),
         ] {
             assert_eq!(parse(input).unwrap(), vec![expected_ast])
         }
