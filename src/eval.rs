@@ -238,17 +238,13 @@ impl Eval for ExprCall {
                     )));
                 }
 
-                let mut values = Vec::with_capacity(self.arguments.len());
-                for arg in self.arguments {
-                    values.push(arg.eval(env)?);
-                }
-
                 // Create new environment for this function to run in
                 // Declare every argument as the corresponding parameter name
-                let mut fn_env = Environment::new_from(env);
-                for (name, value) in std::iter::zip(parameters, values) {
-                    fn_env.insert(&name, value);
+                let mut fn_env = Environment::new();
+                for (name, value) in std::iter::zip(parameters, self.arguments) {
+                    fn_env.insert(&name, value.eval(env)?);
                 }
+                fn_env.outer = Some(env);
 
                 return body.eval(&mut fn_env);
             }
