@@ -7,7 +7,7 @@ mod object;
 mod parser;
 
 use eval::{eval_program, Environment};
-use std::io;
+use std::io::{self, Write};
 
 fn main() -> io::Result<()> {
     let mut buffer = String::with_capacity(512);
@@ -15,12 +15,14 @@ fn main() -> io::Result<()> {
 
     loop {
         buffer.clear();
+        print!(">>> ");
+        io::stdout().flush()?;
         io::stdin().read_line(&mut buffer)?;
-        println!("In: {:?}", buffer.trim());
 
-        let obj = eval_program(&buffer, Some(&mut env));
-        println!("Out: {:?}", obj);
-        println!();
+        match eval_program(&buffer, Some(&mut env)) {
+            Ok(obj) => println!("{}", obj),
+            Err(e) => println!("{:?}", e),
+        }
     }
 
     Ok(())

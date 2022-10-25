@@ -101,6 +101,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assign_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
+        // confirm left is of the correct type
+        match left {
+            Expr::Identifier(_) | Expr::Index => (),
+            _ => {
+                return Err(ParseError::new(format!(
+                    "can not assign to expression of type {:?}",
+                    left
+                )))
+            }
+        }
+
         // skip over Token::Assign
         self.advance();
         let right = self.parse_expr(Precedence::Assign)?;
@@ -155,7 +166,19 @@ impl<'a> Parser<'a> {
         }?;
         self.advance();
 
-        let parameters = vec![];
+        let mut parameters = vec![];
+        self.skip(Token::OpenParen)?;
+
+        // parse list of parameter names
+        while self.current_token != Token::CloseParen {
+            if let Token::Identifier(name) = self.current_token {
+                parameters.push(name.to_owned());
+                self.advance();
+                self.skip_optional(Token::Comma);
+            }
+        }
+        self.skip(Token::CloseParen)?;
+
         let body = self.parse_block_statement()?;
         Ok(Expr::Function(name.to_owned(), parameters, body))
     }
@@ -209,27 +232,32 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    fn parse_decl_statement(&mut self) -> Result<Stmt, ParseError> {
+        // skip Token::Declare
+        self.advance();
+
+        let identifier = match self.current_token {
+            Token::Identifier(name) => Ok(name.to_owned()),
+            _ => Err(ParseError::new(format!(
+                "Expected identifier, got {:?}",
+                self.current_token
+            ))),
+        }?;
+
+        // skip Token::Ident
+        self.advance();
+
+        // TODO: Make this part optional, for uninitialized vars?
+        self.skip(Token::Assign)?;
+
+        let value = self.parse_expr(Precedence::Lowest)?;
+        Ok(Stmt::Let(identifier, value))
+    }
+
     /// Parse a single statement
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         let stmt = match self.current_token {
-            Token::Declare => {
-                self.advance();
-
-                let identifier = match self.current_token {
-                    Token::Identifier(name) => Ok(name.to_owned()),
-                    _ => Err(ParseError::new(format!(
-                        "Expected identifier, got {:?}",
-                        self.current_token
-                    ))),
-                }?;
-                self.advance();
-
-                // TODO: Make this part optional, for uninitialized vars?
-                self.skip(Token::Assign)?;
-
-                let value = self.parse_expr(Precedence::Lowest)?;
-                Stmt::Let(identifier, value)
-            }
+            Token::Declare => self.parse_decl_statement()?,
             Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
             _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
         };
@@ -255,13 +283,11 @@ impl<'a> Parser<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct ParseError {
-    pub(crate) message: String,
-}
+pub(crate) struct ParseError(String);
 
 impl ParseError {
     fn new(message: String) -> ParseError {
-        ParseError { message }
+        ParseError(message)
     }
 }
 
@@ -458,6 +484,38 @@ mod tests {
                 )),
             ],
         )] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_function_expression() {
+        for (input, expected_ast) in [
+            (
+                "functie fib() { 1 }",
+                vec![Stmt::Expr(Expr::Function(
+                    "fib".to_owned(),
+                    vec![],
+                    vec![Stmt::Expr(ExprInt::new(1))],
+                ))],
+            ),
+            (
+                "functie fib(a) { 1 }",
+                vec![Stmt::Expr(Expr::Function(
+                    "fib".to_owned(),
+                    vec!["a".to_owned()],
+                    vec![Stmt::Expr(ExprInt::new(1))],
+                ))],
+            ),
+            (
+                "functie fib(a, b) { 1 }",
+                vec![Stmt::Expr(Expr::Function(
+                    "fib".to_owned(),
+                    vec!["a".to_owned(), "b".to_owned()],
+                    vec![Stmt::Expr(ExprInt::new(1))],
+                ))],
+            ),
+        ] {
             assert_eq!(parse(input).unwrap(), expected_ast)
         }
     }

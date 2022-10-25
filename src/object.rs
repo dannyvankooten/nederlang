@@ -1,5 +1,6 @@
 use crate::ast::{BlockStmt, Operator};
 use crate::eval::Error;
+use std::fmt::Display;
 use std::string::String;
 use std::{ops, rc::Rc};
 
@@ -24,6 +25,19 @@ impl NlObject {
                 "Can not use objects of type {:?} as boolean expression.",
                 self
             ),
+        }
+    }
+}
+
+impl Display for NlObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NlObject::Bool(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::Int(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::Null => f.write_str(""),
+            NlObject::Func(_) => f.write_str("function"),
         }
     }
 }

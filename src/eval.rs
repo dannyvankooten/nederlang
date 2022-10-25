@@ -308,12 +308,52 @@ mod tests {
     }
 
     #[test]
-    fn test_boolean_infix_expressions() {
+    fn test_int_boolean_infix_expressions() {
         for (input, expected) in [
             ("5 > 2", NlObject::Bool(true)),
             ("5 < 2", NlObject::Bool(false)),
             ("1 >= 1", NlObject::Bool(true)),
             ("1 <= 1", NlObject::Bool(true)),
+            ("1 == 1", NlObject::Bool(true)),
+            ("1 != 1", NlObject::Bool(false)),
+        ] {
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_float_boolean_infix_expressions() {
+        for (input, expected) in [
+            ("5.5 > 2.5", NlObject::Bool(true)),
+            ("5.5 < 2.5", NlObject::Bool(false)),
+            ("1.5 >= 1.5", NlObject::Bool(true)),
+            ("1.5 <= 1.5", NlObject::Bool(true)),
+            ("1.5 == 1.5", NlObject::Bool(true)),
+            ("1.5 != 1.5", NlObject::Bool(false)),
+        ] {
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_bool_boolean_infix_expressions() {
+        for (input, expected) in [
+            ("ja > nee", NlObject::Bool(true)),
+            ("ja < nee", NlObject::Bool(false)),
+            ("ja >= nee", NlObject::Bool(true)),
+            ("ja <= nee", NlObject::Bool(false)),
+            ("ja == nee", NlObject::Bool(false)),
+            ("ja != nee", NlObject::Bool(true)),
         ] {
             assert_eq!(
                 Ok(expected),
@@ -347,6 +387,16 @@ mod tests {
         for (input, expected) in [
             ("\"foo\" + \"bar\"", NlObject::String("foobar".to_owned())),
             ("\"foo\" * 2", NlObject::String("foofoo".to_owned())),
+            ("\"foo\" == \"foo\"", NlObject::Bool(true)),
+            ("\"foo\" != \"foo\"", NlObject::Bool(false)),
+            ("\"foo\" >= \"foo\"", NlObject::Bool(true)),
+            ("\"foo\" <= \"foo\"", NlObject::Bool(true)),
+            ("\"foo\" > \"foo\"", NlObject::Bool(false)),
+            ("\"foo\" < \"foo\"", NlObject::Bool(false)),
+            ("\"abc\" > \"xyz\"", NlObject::Bool(false)),
+            ("\"abc\" >= \"xyz\"", NlObject::Bool(false)),
+            ("\"abc\" < \"xyz\"", NlObject::Bool(true)),
+            ("\"abc\" <= \"xyz\"", NlObject::Bool(true)),
         ] {
             assert_eq!(
                 Ok(expected),
@@ -467,6 +517,22 @@ mod tests {
                 "eval input: {}",
                 input
             );
+        }
+    }
+
+    #[test]
+    fn test_cmp_errors() {
+        for input in [
+            "5 > \"foo\"",
+            "5 >= \"foo\"",
+            "5 < \"foo\"",
+            "5 <= \"foo\"",
+            "\"foo\" > 5",
+            "\"foo\" >= 5",
+            "\"foo\" < 5",
+            "\"foo\" <= 5",
+        ] {
+            assert!(eval_program(input, None).is_err(), "eval input: {}", input);
         }
     }
 
