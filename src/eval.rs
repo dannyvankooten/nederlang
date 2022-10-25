@@ -6,7 +6,6 @@ use crate::object::*;
 use crate::parser;
 use parser::ParseError;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
@@ -118,7 +117,7 @@ impl Eval for ExprInfix {
             _ => {
                 unimplemented!(
                     "Infix expressions with operator {:?} are not implemented.",
-                    &self.operator
+                    self.operator
                 )
             }
         }
@@ -134,7 +133,7 @@ impl Eval for ExprPrefix {
             Operator::Subtract => -right,
             _ => unimplemented!(
                 "Prefix expressions with operator {:?} are not implemented.",
-                &self.operator
+                self.operator
             ),
         }
     }
@@ -154,17 +153,17 @@ impl Eval for ExprIf {
     }
 }
 
-impl Eval for Stmt {
+impl Stmt {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match self {
             Stmt::Expr(expr) => expr.eval(env),
+            Stmt::Block(expr) => expr.eval_scoped(env),
             Stmt::Let(name, value) => {
                 let value = value.eval(env)?;
                 env.insert(name, value);
                 // TODO: What to return from declare statements?
                 Ok(NlObject::Null)
             }
-            Stmt::Block(expr) => expr.eval_scoped(env),
             _ => unimplemented!("Statements of type {:?} are not implemented.", self),
         }
     }
@@ -269,20 +268,20 @@ impl Eval for ExprCall {
 impl Eval for Expr {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match self {
-            Expr::Infix(expr) => expr.eval(env),
-            Expr::Prefix(expr) => expr.eval(env),
-            Expr::Assign(expr) => expr.eval(env),
-            Expr::If(expr) => expr.eval(env),
             Expr::Int(expr) => expr.eval(),
             Expr::Float(expr) => expr.eval(),
             Expr::Bool(expr) => expr.eval(),
             Expr::String(expr) => expr.eval(),
             Expr::Identifier(name) => Ok(env.resolve(&name)),
+            Expr::Infix(expr) => expr.eval(env),
+            Expr::If(expr) => expr.eval(env),
             Expr::Function(name, parameters, body) => {
                 env.insert(name, NlObject::Func(parameters, body));
                 Ok(NlObject::Null)
             }
             Expr::Call(expr) => expr.eval(env),
+            Expr::Prefix(expr) => expr.eval(env),
+            Expr::Assign(expr) => expr.eval(env),
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
                 self

@@ -248,6 +248,16 @@ impl<'a> Iterator for Tokenizer<'a> {
                     Gt
                 }
             }
+            '/' => {
+                // Two consecutive slashes indicate the start of a single-line comment
+                // So skip forward until end of line.
+                if self.peek() == Some('/') {
+                    self.skip_while(|c| c != '\n');
+                    return self.next();
+                } else {
+                    Slash
+                }
+            }
 
             // One-symbol tokens.
             ';' => Semi,
@@ -264,7 +274,6 @@ impl<'a> Iterator for Tokenizer<'a> {
             '*' => Star,
             '^' => Caret,
             '%' => Percent,
-            '/' => Slash,
 
             // Unknown / illegal tokens
             _ => Illegal,
