@@ -100,6 +100,13 @@ impl<'a> Parser<'a> {
         Ok(ExprIf::new(condition, consequence, alternative))
     }
 
+    fn parse_assign_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
+        // skip over Token::Assign
+        self.advance();
+        let right = self.parse_expr(Precedence::Assign)?;
+        Ok(ExprAssign::new(left, right))
+    }
+
     /// Assert current token is of the given type and skips it
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.current_token != t {
@@ -139,6 +146,26 @@ impl<'a> Parser<'a> {
         ExprString::new(value.to_owned())
     }
 
+    fn parse_function_expr(&mut self) -> Result<Expr, ParseError> {
+        self.advance();
+
+        let name = match self.current_token {
+            Token::Identifier(name) => Ok(name),
+            _ => Err(ParseError::new("Expected identifier.".to_owned())),
+        }?;
+        self.advance();
+
+        let parameters = vec![];
+        let body = self.parse_block_statement()?;
+        Ok(Expr::Function(name.to_owned(), parameters, body))
+    }
+
+    fn parse_ident(&mut self, name: &str) -> Expr {
+        let expr = Expr::Identifier(name.to_owned());
+        self.advance();
+        expr
+    }
+
     /// Parse an expression
     fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
         let mut left = match self.current_token {
@@ -155,11 +182,8 @@ impl<'a> Parser<'a> {
             }
             Token::If => self.parse_if_expr()?,
             Token::Bang | Token::Minus => self.parse_prefix_expr()?,
-            Token::Identifier(name) => {
-                let expr = Expr::Identifier(name.to_owned());
-                self.advance();
-                expr
-            }
+            Token::Identifier(name) => self.parse_ident(name),
+            Token::Func => self.parse_function_expr()?,
             _ => todo!("Unsupported expression type: {:?}", self.current_token),
         };
 
@@ -176,8 +200,8 @@ impl<'a> Parser<'a> {
                 | Token::Minus
                 | Token::Slash
                 | Token::Star
-                | Token::Percent
-                | Token::Assign => self.parse_infix_expr(left)?,
+                | Token::Percent => self.parse_infix_expr(left)?,
+                Token::Assign => self.parse_assign_expr(left)?,
                 _ => return Ok(left),
             };
         }
@@ -230,7 +254,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct ParseError {
     pub(crate) message: String,
 }
@@ -428,9 +452,8 @@ mod tests {
             "stel a = 1; a = 2;",
             vec![
                 Stmt::Let("a".to_owned(), ExprInt::new(1)),
-                Stmt::Expr(ExprInfix::new(
+                Stmt::Expr(ExprAssign::new(
                     Expr::Identifier("a".to_owned()),
-                    Operator::Assign,
                     ExprInt::new(2),
                 )),
             ],

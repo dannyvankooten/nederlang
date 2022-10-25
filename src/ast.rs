@@ -1,6 +1,6 @@
 use crate::lexer::Token;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) enum Expr {
     Infix(ExprInfix),
     Prefix(ExprPrefix),
@@ -9,57 +9,63 @@ pub(crate) enum Expr {
     Bool(ExprBool),
     If(ExprIf),
     Identifier(String),
-    Function,
+    Function(String, Vec<String>, BlockStmt),
     Call,
+    Assign(ExprAssign),
     String(ExprString),
     Array,
     Index,
     For,
     While,
-    Assign,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) struct ExprInfix {
     pub(crate) left: Box<Expr>,
     pub(crate) operator: Operator,
     pub(crate) right: Box<Expr>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) struct ExprAssign {
+    pub(crate) left: Box<Expr>,
+    pub(crate) right: Box<Expr>,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub(crate) struct ExprInt {
     pub(crate) value: i64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub(crate) struct ExprFloat {
     pub(crate) value: f64,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub(crate) struct ExprBool {
     pub(crate) value: bool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 pub(crate) struct ExprString {
     pub(crate) value: String,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) struct ExprPrefix {
     pub(crate) operator: Operator,
     pub(crate) right: Box<Expr>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) struct ExprIf {
     pub(crate) condition: Box<Expr>,
     pub(crate) consequence: BlockStmt,
     pub(crate) alternative: Option<BlockStmt>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) enum Stmt {
     Let(String, Expr),
     // Return(Expr),
@@ -71,7 +77,7 @@ pub(crate) enum Stmt {
 
 pub(crate) type BlockStmt = Vec<Stmt>;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, PartialOrd, Clone)]
 pub(crate) enum Operator {
     Add,
     Subtract,
@@ -130,6 +136,15 @@ impl ExprInfix {
         Expr::Infix(ExprInfix {
             left: Box::new(left),
             operator,
+            right: Box::new(right),
+        })
+    }
+}
+
+impl ExprAssign {
+    pub fn new(left: Expr, right: Expr) -> Expr {
+        Expr::Assign(ExprAssign {
+            left: Box::new(left),
             right: Box::new(right),
         })
     }

@@ -1,11 +1,20 @@
 use crate::ast::{
-    BlockStmt, Expr, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix, ExprString,
-    Operator, Stmt,
+    BlockStmt, Expr, ExprAssign, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix,
+    ExprString, Operator, Stmt,
 };
 use crate::object::*;
 use crate::parser;
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+use parser::ParseError;
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Error {
+    TypeError(String),
+    SyntaxError(ParseError),
+    ReferenceError(String),
+}
 
 #[derive(Debug)]
 pub struct Environment<'a> {
@@ -14,7 +23,7 @@ pub struct Environment<'a> {
 }
 
 pub(crate) trait Eval {
-    fn eval(&self, env: &mut Environment) -> NlObject;
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error>;
 }
 
 impl<'a> Environment<'a> {
@@ -32,100 +41,101 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn resolve(&self, ident: &str) -> NlObject {
+    pub(crate) fn resolve(&self, ident: &str) -> NlObject {
         let hm = self.symbols.borrow();
         if let Some(value) = hm.get(ident) {
             return value.clone();
-        }
-
-        if let Some(outer) = &self.outer {
+        } else if let Some(outer) = &self.outer {
             return outer.resolve(ident);
         }
 
         NlObject::Null
     }
 
-    pub fn insert(&self, ident: &str, value: NlObject) {
+    pub(crate) fn insert(&self, ident: &str, value: NlObject) {
         self.symbols.borrow_mut().insert(ident.to_owned(), value);
     }
 
-    pub fn update(&self, ident: &str, value: NlObject) {
+    pub(crate) fn update(&self, ident: &str, value: NlObject) -> Result<(), Error> {
         let mut hm = self.symbols.borrow_mut();
 
         if let Some(old_value) = hm.get_mut(ident) {
             *old_value = value;
-        } else {
-            if let Some(outer) = &self.outer {
-                return outer.update(ident, value);
-            }
+            return Ok(());
+        } else if let Some(outer) = &self.outer {
+            return outer.update(ident, value);
         }
+
+        Err(Error::ReferenceError(format!(
+            "assignment to undeclared variable {}",
+            ident
+        )))
     }
 }
 
-pub fn eval_program(program: &str, env: Option<&mut Environment>) -> NlObject {
+pub(crate) fn eval_program(
+    program: &str,
+    env: Option<&mut Environment>,
+) -> Result<NlObject, Error> {
     let mut default_env = Environment::new();
     let env = env.unwrap_or(&mut default_env);
-    match parser::parse(program) {
-        Ok(ast) => {
-            let mut last = NlObject::Null;
-            for s in ast {
-                last = s.eval(env)
+    let ast = parser::parse(program).map_err(Error::SyntaxError)?;
+    let mut last = NlObject::Null;
+    for s in ast {
+        last = s.eval(env)?
+    }
+    Ok(last)
+}
+
+impl Eval for ExprAssign {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        match *self.left {
+            Expr::Identifier(name) => {
+                let right = self.right.eval(env)?;
+                env.update(&name, right)?;
+                return Ok(NlObject::Null);
             }
-            last
-        }
-        Err(e) => {
-            eprintln!("{}", e.message);
-            NlObject::Null
+            _ => panic!(),
         }
     }
 }
 
 impl Eval for ExprInfix {
-    fn eval(&self, env: &mut Environment) -> NlObject {
-        let left = self.left.eval(env);
-        let right = self.right.eval(env);
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        let left = self.left.eval(env)?;
+        let right = self.right.eval(env)?;
 
-        match &self.operator {
+        match self.operator {
             Operator::Add => left + right,
             Operator::Subtract => left - right,
             Operator::Multiply => left * right,
             Operator::Divide => left / right,
             Operator::Modulo => left % right,
-            Operator::Gt => NlObject::Bool(left > right),
-            Operator::Gte => NlObject::Bool(left >= right),
-            Operator::Lt => NlObject::Bool(left < right),
-            Operator::Lte => NlObject::Bool(left >= right),
-            Operator::Eq => NlObject::Bool(left == right),
-            Operator::Neq => NlObject::Bool(left != right),
-            Operator::Assign => {
-                // TODO: Move Assignments into its own expression because we are now
-                // needlessly evaluating the lhs
-                // Also we could show a parsing error in case left is not Ident
-                match &*self.left {
-                    Expr::Identifier(name) => {
-                        env.update(name, right);
-                        NlObject::Null
-                    }
-                    _ => panic!(),
-                }
+            Operator::Gt => left.gt(&right),
+            Operator::Gte => left.gte(&right),
+            Operator::Lt => left.lt(&right),
+            Operator::Lte => left.lte(&right),
+            Operator::Eq => left.eq(&right),
+            Operator::Neq => left.neq(&right),
+            _ => {
+                unimplemented!(
+                    "Infix expressions with operator {:?} are not implemented.",
+                    &self.operator
+                )
             }
-            _ => unimplemented!(
-                "Infix expressions with operator {:?} are not implemented.",
-                &self.operator
-            ),
         }
     }
 }
 
 impl Eval for ExprPrefix {
-    fn eval(&self, env: &mut Environment) -> NlObject {
-        let right = self.right.eval(env);
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        let right = self.right.eval(env)?;
 
-        match &self.operator {
+        match self.operator {
             Operator::Negate => !right,
             Operator::Subtract => -right,
             _ => unimplemented!(
-                "Infix expressions with operator {:?} are not implemented.",
+                "Prefix expressions with operator {:?} are not implemented.",
                 &self.operator
             ),
         }
@@ -133,28 +143,28 @@ impl Eval for ExprPrefix {
 }
 
 impl Eval for ExprIf {
-    fn eval(&self, env: &mut Environment) -> NlObject {
-        let condition = self.condition.eval(env);
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        let condition = self.condition.eval(env)?;
 
         if condition.is_truthy() {
             self.consequence.eval(env)
-        } else if let Some(alternative) = &self.alternative {
+        } else if let Some(alternative) = self.alternative {
             alternative.eval(env)
         } else {
-            NlObject::Null
+            Ok(NlObject::Null)
         }
     }
 }
 
 impl Eval for Stmt {
-    fn eval(&self, env: &mut Environment) -> NlObject {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match self {
             Stmt::Expr(expr) => expr.eval(env),
             Stmt::Let(name, value) => {
-                let value = value.eval(env);
-                env.insert(name, value);
+                let value = value.eval(env)?;
+                env.insert(&name, value);
                 // TODO: What to return from declare statements?
-                NlObject::Null
+                Ok(NlObject::Null)
             }
             Stmt::Block(expr) => expr.eval(env),
             _ => unimplemented!("Statements of type {:?} are not implemented.", self),
@@ -163,52 +173,57 @@ impl Eval for Stmt {
 }
 
 impl Eval for BlockStmt {
-    fn eval(&self, env: &mut Environment) -> NlObject {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         // BlockStmts get their own scope, so variables declare inside this block are dropped at the end
         let mut new_env = Environment::new_from(env);
         let mut last = NlObject::Null;
         for s in self {
-            last = s.eval(&mut new_env)
+            last = s.eval(&mut new_env)?
         }
-        last
+        Ok(last)
     }
 }
 
 impl ExprInt {
-    fn eval(&self) -> NlObject {
-        NlObject::Int(self.value)
+    fn eval(&self) -> Result<NlObject, Error> {
+        Ok(NlObject::Int(self.value))
     }
 }
 
 impl ExprFloat {
-    fn eval(&self) -> NlObject {
-        NlObject::Float(self.value)
+    fn eval(&self) -> Result<NlObject, Error> {
+        Ok(NlObject::Float(self.value))
     }
 }
 
 impl ExprBool {
-    fn eval(&self) -> NlObject {
-        NlObject::Bool(self.value)
+    fn eval(&self) -> Result<NlObject, Error> {
+        Ok(NlObject::Bool(self.value))
     }
 }
 
 impl ExprString {
-    fn eval(&self) -> NlObject {
-        NlObject::String(self.value.to_owned())
+    fn eval(&self) -> Result<NlObject, Error> {
+        Ok(NlObject::String(self.value.to_owned()))
     }
 }
 
 impl Eval for Expr {
-    fn eval(&self, env: &mut Environment) -> NlObject {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match self {
             Expr::Infix(expr) => expr.eval(env),
             Expr::Prefix(expr) => expr.eval(env),
+            Expr::Assign(expr) => expr.eval(env),
             Expr::If(expr) => expr.eval(env),
             Expr::Int(expr) => expr.eval(),
             Expr::Float(expr) => expr.eval(),
             Expr::Bool(expr) => expr.eval(),
             Expr::String(expr) => expr.eval(),
-            Expr::Identifier(name) => env.resolve(name),
+            Expr::Identifier(name) => Ok(env.resolve(&name)),
+            Expr::Function(name, parameters, body) => {
+                env.insert(&name, NlObject::Func(body));
+                Ok(NlObject::Null)
+            }
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
                 self
@@ -232,7 +247,12 @@ mod tests {
             ("6 / 2", NlObject::Int(3)),
             ("6 % 2", NlObject::Int(0)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -242,7 +262,12 @@ mod tests {
             ("6 + 2 * 5", NlObject::Int(16)),
             ("6 + 2 * 5 / 5", NlObject::Int(8)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -255,7 +280,12 @@ mod tests {
             ("6.5 / 2.0", NlObject::Float(3.25)),
             ("6.5 % 2.0", NlObject::Float(0.5)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -268,7 +298,12 @@ mod tests {
             ("6.5 / 2", NlObject::Float(3.25)),
             ("6.5 % 2", NlObject::Float(0.5)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -280,7 +315,12 @@ mod tests {
             ("1 >= 1", NlObject::Bool(true)),
             ("1 <= 1", NlObject::Bool(true)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -293,7 +333,12 @@ mod tests {
             ("!!ja", NlObject::Bool(true)),
             ("!!!ja", NlObject::Bool(false)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -303,7 +348,12 @@ mod tests {
             ("\"foo\" + \"bar\"", NlObject::String("foobar".to_owned())),
             ("\"foo\" * 2", NlObject::String("foofoo".to_owned())),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -311,7 +361,12 @@ mod tests {
     fn test_multiple_expressions() {
         {
             let (input, expected) = ("5 + 5; 6 + 2", NlObject::Int(8));
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -323,7 +378,12 @@ mod tests {
             ("als 5 < 4 { 1 } anders { 2 }", NlObject::Int(2)),
             ("als (5 > 4) { 1 } anders { 2 }", NlObject::Int(1)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -331,7 +391,12 @@ mod tests {
     fn test_declare_statements() {
         {
             let (input, expected) = ("stel a = 100", NlObject::Null);
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -343,7 +408,12 @@ mod tests {
             ("stel a = 100; stel b = 2; a", NlObject::Int(100)),
             ("stel a = 100; stel b = 2; a * b", NlObject::Int(200)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -356,7 +426,12 @@ mod tests {
                 NlObject::Int(2),
             ),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -369,7 +444,12 @@ mod tests {
                 NlObject::Int(3),
             ),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -381,7 +461,12 @@ mod tests {
             ("stel a = 1; { stel a = 2; } a", NlObject::Int(1)),
             ("stel a = 1; { stel b = 1; a = a + b; } a", NlObject::Int(2)),
         ] {
-            assert_eq!(expected, eval_program(input, None), "eval input: {}", input);
+            assert_eq!(
+                Ok(expected),
+                eval_program(input, None),
+                "eval input: {}",
+                input
+            );
         }
     }
 
@@ -390,7 +475,7 @@ mod tests {
     fn bench_string_addition(b: &mut Bencher) {
         b.iter(|| {
             assert_eq!(
-                NlObject::String("foo".repeat(10)),
+                Ok(NlObject::String("foo".repeat(10))),
                 eval_program("\"foo\" * 10", None),
             );
         });
