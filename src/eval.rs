@@ -1,6 +1,6 @@
 use crate::ast::{
-    BlockStmt, Expr, ExprAssign, ExprBool, ExprFloat, ExprIf, ExprInfix, ExprInt, ExprPrefix,
-    ExprString, Operator, Stmt,
+    BlockStmt, Expr, ExprAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprInfix, ExprInt,
+    ExprPrefix, ExprString, Operator, Stmt,
 };
 use crate::object::*;
 use crate::parser;
@@ -80,11 +80,7 @@ pub(crate) fn eval_program(
     let mut default_env = Environment::new();
     let env = env.unwrap_or(&mut default_env);
     let ast = parser::parse(program).map_err(Error::SyntaxError)?;
-    let mut last = NlObject::Null;
-    for s in ast {
-        last = s.eval(env)?
-    }
-    Ok(last)
+    ast.eval(env)
 }
 
 impl Eval for ExprAssign {
@@ -166,19 +162,29 @@ impl Eval for Stmt {
                 // TODO: What to return from declare statements?
                 Ok(NlObject::Null)
             }
-            Stmt::Block(expr) => expr.eval(env),
+            Stmt::Block(expr) => expr.eval_scoped(env),
             _ => unimplemented!("Statements of type {:?} are not implemented.", self),
         }
     }
 }
 
-impl Eval for BlockStmt {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+trait EvalWithScope {
+    fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error>;
+}
+
+impl EvalWithScope for BlockStmt {
+    fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error> {
         // BlockStmts get their own scope, so variables declare inside this block are dropped at the end
         let mut new_env = Environment::new_from(env);
+        self.eval(&mut new_env)
+    }
+}
+
+impl Eval for BlockStmt {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         let mut last = NlObject::Null;
         for s in self {
-            last = s.eval(&mut new_env)?
+            last = s.eval(env)?
         }
         Ok(last)
     }
@@ -208,6 +214,54 @@ impl ExprString {
     }
 }
 
+impl Eval for ExprCall {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        let function = match *self.func {
+            Expr::Identifier(name) => env.resolve(&name),
+            Expr::Function(_, parameters, body) => NlObject::Func(parameters, body),
+            _ => panic!(
+                "Expression of type {:?} is not callable. Parser should have picked up on this.",
+                self.func
+            ),
+        };
+
+        match function {
+            NlObject::Func(parameters, body) => {
+                // Validate number of arguments
+                if self.arguments.len() != parameters.len() {
+                    // TODO: Supply function name here.
+                    return Err(Error::TypeError(format!(
+                        "{} takes exactly {} arguments ({} given)",
+                        "function",
+                        parameters.len(),
+                        self.arguments.len()
+                    )));
+                }
+
+                let mut values = Vec::with_capacity(self.arguments.len());
+                for arg in self.arguments {
+                    values.push(arg.eval(env)?);
+                }
+
+                // Create new environment for this function to run in
+                // Declare every argument as the corresponding parameter name
+                let mut fn_env = Environment::new_from(env);
+                for (name, value) in std::iter::zip(parameters, values) {
+                    fn_env.insert(&name, value);
+                }
+
+                return body.eval(&mut fn_env);
+            }
+            _ => {
+                return Err(Error::TypeError(format!(
+                    "Object of type {:?} is not callable.",
+                    function
+                )))
+            }
+        }
+    }
+}
+
 impl Eval for Expr {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match self {
@@ -224,48 +278,7 @@ impl Eval for Expr {
                 env.insert(&name, NlObject::Func(parameters, body));
                 Ok(NlObject::Null)
             }
-            Expr::Call(expr) => {
-                let function = match *expr.func {
-                    Expr::Identifier(name) => env.resolve(&name),
-                    Expr::Function(name, parameters, body) => NlObject::Func(parameters, body),
-                    _ => panic!("Expression of type {:?} is not callable. Parser should have picked up on this.", expr.func),
-                };
-
-                match function {
-                    NlObject::Func(parameters, body) => {
-                        if expr.arguments.len() != parameters.len() {
-                            // TODO: Supply function name here.
-                            return Err(Error::TypeError(format!(
-                                "{} takes exactly {} arguments ({} given)",
-                                "function",
-                                parameters.len(),
-                                expr.arguments.len()
-                            )));
-                        }
-
-                        let mut values = Vec::with_capacity(expr.arguments.len());
-                        for arg in expr.arguments {
-                            values.push(arg.eval(env)?);
-                        }
-
-                        // TODO: Move this into evaluation of BlockStmt so that we don't create two environments for a single function call
-                        let mut fn_env = Environment::new_from(env);
-                        for (name, value) in std::iter::zip(parameters, values) {
-                            fn_env.insert(&name, value);
-                        }
-
-                        return body.eval(&mut fn_env);
-                    }
-                    _ => {
-                        return Err(Error::TypeError(format!(
-                            "Object of type {:?} is not callable.",
-                            function
-                        )))
-                    }
-                }
-
-                Ok(NlObject::Null)
-            }
+            Expr::Call(expr) => expr.eval(env),
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
                 self
