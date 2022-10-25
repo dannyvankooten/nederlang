@@ -11,7 +11,7 @@ pub(crate) enum NlObject {
     Float(f64),
     Bool(bool),
     String(String),
-    Func(BlockStmt),
+    Func(Vec<String>, BlockStmt),
 }
 
 impl NlObject {
@@ -37,7 +37,7 @@ impl Display for NlObject {
             NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::Null => f.write_str(""),
-            NlObject::Func(_) => f.write_str("function"),
+            NlObject::Func(_, _) => f.write_str("function"),
         }
     }
 }
@@ -205,8 +205,8 @@ macro_rules! impl_cmp {
         pub fn $func_name(&self, other: &Self) -> Result<NlObject, Error> {
             match (self, other) {
                 (NlObject::String(_), NlObject::String(_)) => Ok(Bool(self $op other)),
-                (NlObject::Func(_), _)
-                | (_, NlObject::Func(_))
+                (NlObject::Func(_, _), _)
+                | (_, NlObject::Func(_, _))
                 | (NlObject::String(_), _)
                 | (_, NlObject::String(_)) => Err(Error::TypeError(format!(
                     "Comparing objects of type {:?} and {:?} is not supported",

@@ -190,7 +190,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_call_expr(&mut self, func: Expr) -> Result<Expr, ParseError> {
-        if !matches!(func, Expr::Identifier(_)) {
+        if !matches!(func, Expr::Identifier(_)) && !matches!(func, Expr::Function(_, _, _)) {
             return Err(ParseError(format!(
                 "Expression of type {:?} is not callable.",
                 func

@@ -221,7 +221,49 @@ impl Eval for Expr {
             Expr::String(expr) => expr.eval(),
             Expr::Identifier(name) => Ok(env.resolve(&name)),
             Expr::Function(name, parameters, body) => {
-                env.insert(&name, NlObject::Func(body));
+                env.insert(&name, NlObject::Func(parameters, body));
+                Ok(NlObject::Null)
+            }
+            Expr::Call(expr) => {
+                let function = match *expr.func {
+                    Expr::Identifier(name) => env.resolve(&name),
+                    Expr::Function(name, parameters, body) => NlObject::Func(parameters, body),
+                    _ => panic!("Expression of type {:?} is not callable. Parser should have picked up on this.", expr.func),
+                };
+
+                match function {
+                    NlObject::Func(parameters, body) => {
+                        if expr.arguments.len() != parameters.len() {
+                            // TODO: Supply function name here.
+                            return Err(Error::TypeError(format!(
+                                "{} takes exactly {} arguments ({} given)",
+                                "function",
+                                parameters.len(),
+                                expr.arguments.len()
+                            )));
+                        }
+
+                        let mut values = Vec::with_capacity(expr.arguments.len());
+                        for arg in expr.arguments {
+                            values.push(arg.eval(env)?);
+                        }
+
+                        // TODO: Move this into evaluation of BlockStmt so that we don't create two environments for a single function call
+                        let mut fn_env = Environment::new_from(env);
+                        for (name, value) in std::iter::zip(parameters, values) {
+                            fn_env.insert(&name, value);
+                        }
+
+                        return body.eval(&mut fn_env);
+                    }
+                    _ => {
+                        return Err(Error::TypeError(format!(
+                            "Object of type {:?} is not callable.",
+                            function
+                        )))
+                    }
+                }
+
                 Ok(NlObject::Null)
             }
             _ => unimplemented!(
@@ -537,12 +579,24 @@ mod tests {
     }
 
     #[bench]
-    #[ignore]
-    fn bench_string_addition(b: &mut Bencher) {
+    fn bench_fib_recursive_22(b: &mut Bencher) {
         b.iter(|| {
             assert_eq!(
-                Ok(NlObject::String("foo".repeat(10))),
-                eval_program("\"foo\" * 10", None),
+                Ok(NlObject::Int(17711)),
+                eval_program(
+                    "
+                functie fib(n) {
+                    als n < 2 {
+                        n
+                    } anders {
+                        fib(n - 1) + fib(n - 2)
+                    }    
+                }
+                
+                fib(22)
+                ",
+                    None
+                ),
             );
         });
     }
