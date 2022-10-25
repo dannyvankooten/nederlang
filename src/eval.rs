@@ -26,6 +26,7 @@ pub(crate) trait Eval {
 }
 
 impl<'a> Environment<'a> {
+    #[inline]
     pub fn new() -> Self {
         Environment {
             symbols: RefCell::new(Vec::with_capacity(4)),
@@ -53,8 +54,9 @@ impl<'a> Environment<'a> {
         NlObject::Null
     }
 
-    pub(crate) fn insert(&self, ident: &str, value: NlObject) {
-        self.symbols.borrow_mut().push((ident.to_owned(), value));
+    #[inline]
+    pub(crate) fn insert(&self, ident: String, value: NlObject) {
+        self.symbols.borrow_mut().push((ident, value));
     }
 
     pub(crate) fn update(&self, ident: &str, value: NlObject) -> Result<(), Error> {
@@ -158,7 +160,7 @@ impl Eval for Stmt {
             Stmt::Expr(expr) => expr.eval(env),
             Stmt::Let(name, value) => {
                 let value = value.eval(env)?;
-                env.insert(&name, value);
+                env.insert(name, value);
                 // TODO: What to return from declare statements?
                 Ok(NlObject::Null)
             }
@@ -173,6 +175,7 @@ trait EvalWithScope {
 }
 
 impl EvalWithScope for BlockStmt {
+    #[inline]
     fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error> {
         // BlockStmts get their own scope, so variables declare inside this block are dropped at the end
         let mut new_env = Environment::new_from(env);
@@ -191,70 +194,75 @@ impl Eval for BlockStmt {
 }
 
 impl ExprInt {
+    #[inline(always)]
     fn eval(&self) -> Result<NlObject, Error> {
         Ok(NlObject::Int(self.value))
     }
 }
 
 impl ExprFloat {
+    #[inline(always)]
     fn eval(&self) -> Result<NlObject, Error> {
         Ok(NlObject::Float(self.value))
     }
 }
 
 impl ExprBool {
+    #[inline(always)]
     fn eval(&self) -> Result<NlObject, Error> {
         Ok(NlObject::Bool(self.value))
     }
 }
 
 impl ExprString {
-    fn eval(&self) -> Result<NlObject, Error> {
-        Ok(NlObject::String(self.value.to_owned()))
+    #[inline(always)]
+    fn eval(self) -> Result<NlObject, Error> {
+        Ok(NlObject::String(self.value))
     }
 }
 
 impl Eval for ExprCall {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        let function = match *self.func {
-            Expr::Identifier(name) => env.resolve(&name),
-            Expr::Function(_, parameters, body) => NlObject::Func(parameters, body),
+        let (parameters, body) = match *self.func {
+            Expr::Identifier(name) => {
+                let object = env.resolve(&name);
+                match object {
+                    NlObject::Func(params, body) => (params, body),
+                    _ => {
+                        return Err(Error::TypeError(format!(
+                            "Object of type {:?} is not callable.",
+                            object
+                        )))
+                    }
+                }
+            }
+            Expr::Function(_, parameters, body) => (parameters, body),
             _ => panic!(
                 "Expression of type {:?} is not callable. Parser should have picked up on this.",
                 self.func
             ),
         };
 
-        match function {
-            NlObject::Func(parameters, body) => {
-                // Validate number of arguments
-                if self.arguments.len() != parameters.len() {
-                    // TODO: Supply function name here.
-                    return Err(Error::TypeError(format!(
-                        "{} takes exactly {} arguments ({} given)",
-                        "function",
-                        parameters.len(),
-                        self.arguments.len()
-                    )));
-                }
-
-                // Create new environment for this function to run in
-                // Declare every argument as the corresponding parameter name
-                let mut fn_env = Environment::new();
-                for (name, value) in std::iter::zip(parameters, self.arguments) {
-                    fn_env.insert(&name, value.eval(env)?);
-                }
-                fn_env.outer = Some(env);
-
-                return body.eval(&mut fn_env);
-            }
-            _ => {
-                return Err(Error::TypeError(format!(
-                    "Object of type {:?} is not callable.",
-                    function
-                )))
-            }
+        // Validate number of arguments
+        if self.arguments.len() != parameters.len() {
+            // TODO: Supply function name here.
+            return Err(Error::TypeError(format!(
+                "{} takes exactly {} arguments ({} given)",
+                "function",
+                parameters.len(),
+                self.arguments.len()
+            )));
         }
+
+        // Create new environment for this function to run in
+        // Declare every argument as the corresponding parameter name
+        let mut fn_env = Environment::new();
+        for (name, value) in std::iter::zip(parameters, self.arguments) {
+            fn_env.insert(name, value.eval(env)?);
+        }
+        fn_env.outer = Some(env);
+
+        return body.eval(&mut fn_env);
     }
 }
 
@@ -271,7 +279,7 @@ impl Eval for Expr {
             Expr::String(expr) => expr.eval(),
             Expr::Identifier(name) => Ok(env.resolve(&name)),
             Expr::Function(name, parameters, body) => {
-                env.insert(&name, NlObject::Func(parameters, body));
+                env.insert(name, NlObject::Func(parameters, body));
                 Ok(NlObject::Null)
             }
             Expr::Call(expr) => expr.eval(env),

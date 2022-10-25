@@ -15,11 +15,11 @@ pub(crate) enum NlObject {
 }
 
 impl NlObject {
-    pub(crate) fn is_truthy(&self) -> bool {
+    pub(crate) fn is_truthy(self) -> bool {
         match self {
-            NlObject::Bool(v) => *v,
-            NlObject::Int(v) => *v > 0,
-            NlObject::Float(v) => *v > 0.0,
+            NlObject::Bool(v) => v,
+            NlObject::Int(v) => v > 0,
+            NlObject::Float(v) => v > 0.0,
             NlObject::String(v) => !v.is_empty(),
             _ => unimplemented!(
                 "Can not use objects of type {:?} as boolean expression.",

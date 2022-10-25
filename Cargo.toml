@@ -9,3 +9,6 @@ edition = "2021"
 
 [profile.bench]
 lto = true
+
+[profile.release]
+debug = true

@@ -1,4 +1,4 @@
 /target
 *.out.*
-perf.data
+perf.data*
 flamegraph.svg
