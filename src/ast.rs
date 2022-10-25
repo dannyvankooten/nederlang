@@ -10,7 +10,7 @@ pub(crate) enum Expr {
     If(ExprIf),
     Identifier(String),
     Function(String, Vec<String>, BlockStmt),
-    Call,
+    Call(ExprCall),
     Assign(ExprAssign),
     String(ExprString),
     Array,
@@ -63,6 +63,12 @@ pub(crate) struct ExprIf {
     pub(crate) condition: Box<Expr>,
     pub(crate) consequence: BlockStmt,
     pub(crate) alternative: Option<BlockStmt>,
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) struct ExprCall {
+    pub(crate) func: Box<Expr>,
+    pub(crate) arguments: Vec<Expr>,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
@@ -156,6 +162,15 @@ impl ExprIf {
             condition: Box::new(condition),
             consequence,
             alternative,
+        })
+    }
+}
+
+impl ExprCall {
+    pub fn new(func: Expr, arguments: Vec<Expr>) -> Expr {
+        Expr::Call(ExprCall {
+            func: Box::new(func),
+            arguments: arguments,
         })
     }
 }

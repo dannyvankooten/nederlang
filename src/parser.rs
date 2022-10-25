@@ -189,6 +189,30 @@ impl<'a> Parser<'a> {
         expr
     }
 
+    fn parse_call_expr(&mut self, func: Expr) -> Result<Expr, ParseError> {
+        if !matches!(func, Expr::Identifier(_)) {
+            return Err(ParseError(format!(
+                "Expression of type {:?} is not callable.",
+                func
+            )));
+        }
+
+        // skip Token::OpenParen
+        self.advance();
+
+        // parse argument list
+        let mut arguments = vec![];
+        while self.current_token != Token::CloseParen {
+            arguments.push(self.parse_expr(Precedence::Lowest)?);
+            self.skip_optional(Token::Comma);
+        }
+
+        // skip Token::CloseParen
+        self.advance();
+
+        Ok(ExprCall::new(func, arguments))
+    }
+
     /// Parse an expression
     fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
         let mut left = match self.current_token {
@@ -225,6 +249,7 @@ impl<'a> Parser<'a> {
                 | Token::Star
                 | Token::Percent => self.parse_infix_expr(left)?,
                 Token::Assign => self.parse_assign_expr(left)?,
+                Token::OpenParen => self.parse_call_expr(left)?,
                 _ => return Ok(left),
             };
         }
@@ -537,5 +562,38 @@ mod tests {
         ] {
             assert_eq!(parse(input).unwrap(), expected_ast)
         }
+    }
+
+    #[test]
+    fn test_call_expression() {
+        for (input, expected_ast) in [
+            (
+                "foo()",
+                vec![Stmt::Expr(ExprCall::new(
+                    Expr::Identifier("foo".to_owned()),
+                    vec![],
+                ))],
+            ),
+            (
+                "foo(1)",
+                vec![Stmt::Expr(ExprCall::new(
+                    Expr::Identifier("foo".to_owned()),
+                    vec![ExprInt::new(1)],
+                ))],
+            ),
+            (
+                "foo(1, 2)",
+                vec![Stmt::Expr(ExprCall::new(
+                    Expr::Identifier("foo".to_owned()),
+                    vec![ExprInt::new(1), ExprInt::new(2)],
+                ))],
+            ),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+
+        assert!(parse("1()").is_err());
+        assert!(parse("ja()").is_err());
+        assert!(parse("\"foo\"()").is_err());
     }
 }
