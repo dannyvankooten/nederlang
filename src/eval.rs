@@ -4,10 +4,9 @@ use crate::ast::{
 };
 use crate::object::*;
 use crate::parser;
+use parser::ParseError;
 use std::cell::RefCell;
 use std::collections::HashMap;
-
-use parser::ParseError;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
@@ -18,7 +17,7 @@ pub(crate) enum Error {
 
 #[derive(Debug)]
 pub struct Environment<'a> {
-    symbols: RefCell<HashMap<String, NlObject>>,
+    symbols: RefCell<Vec<(String, NlObject)>>,
     outer: Option<&'a Environment<'a>>,
 }
 
@@ -29,23 +28,25 @@ pub(crate) trait Eval {
 impl<'a> Environment<'a> {
     pub fn new() -> Self {
         Environment {
-            symbols: RefCell::new(HashMap::with_capacity(8)),
+            symbols: RefCell::new(Vec::with_capacity(4)),
             outer: None,
         }
     }
 
-    pub fn new_from(env: &'a Environment<'_>) -> Self {
+    pub fn new_from(env: &'a Environment<'a>) -> Self {
         Environment {
-            symbols: RefCell::new(HashMap::with_capacity(8)),
+            symbols: RefCell::new(Vec::with_capacity(4)),
             outer: Some(env),
         }
     }
 
     pub(crate) fn resolve(&self, ident: &str) -> NlObject {
-        let hm = self.symbols.borrow();
-        if let Some(value) = hm.get(ident) {
+        let symbols = self.symbols.borrow();
+        if let Some((_, value)) = symbols.iter().find(|(name, _)| name == ident) {
             return value.clone();
-        } else if let Some(outer) = &self.outer {
+        }
+
+        if let Some(outer) = &self.outer {
             return outer.resolve(ident);
         }
 
@@ -53,14 +54,13 @@ impl<'a> Environment<'a> {
     }
 
     pub(crate) fn insert(&self, ident: &str, value: NlObject) {
-        self.symbols.borrow_mut().insert(ident.to_owned(), value);
+        self.symbols.borrow_mut().push((ident.to_owned(), value));
     }
 
     pub(crate) fn update(&self, ident: &str, value: NlObject) -> Result<(), Error> {
-        let mut hm = self.symbols.borrow_mut();
-
-        if let Some(old_value) = hm.get_mut(ident) {
-            *old_value = value;
+        let mut symbols = self.symbols.borrow_mut();
+        if let Some(pos) = symbols.iter().position(|(name, _)| name == ident) {
+            symbols[pos] = (ident.to_owned(), value);
             return Ok(());
         } else if let Some(outer) = &self.outer {
             return outer.update(ident, value);
