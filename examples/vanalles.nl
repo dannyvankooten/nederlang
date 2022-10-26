@@ -1,11 +1,3 @@
-functie fib(n) {
-    als n < 2 {
-        antwoord n
-    } 
-
-    fib(n - 1) + fib(n - 2)
-}
-
 functie kwadraat(x) {
     x * x
 }
@@ -40,7 +32,7 @@ functie is_even(a) {
 }
 
 functie is_oneven(a) {
-    ! is_even(a)
+    antwoord ! is_even(a)
 }
 
 stel a = 10
@@ -60,9 +52,17 @@ print(resultaat)
 
 // Array
 stel getallen = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+getallen[0] = 10;
 
-// Output: 1
+// Output: 10
 print(getallen[0])
 
-// Calculate 35th fibonacci number
+// Calculate 35th fibonacci number (using a closure)
+stel fib = functie(n) {
+    als n < 2 {
+        antwoord n
+    } 
+
+    fib(n - 1) + fib(n - 2)
+}
 fib(15)
