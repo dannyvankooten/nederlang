@@ -295,11 +295,20 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Let(identifier, value))
     }
 
+    fn parse_return_statement(&mut self) -> Result<Stmt, ParseError> {
+        // skip over Token::Return
+        self.advance();
+
+        let expr = self.parse_expr(Precedence::Lowest)?;
+        Ok(Stmt::Return(expr))
+    }
+
     /// Parse a single statement
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         let stmt = match self.current_token {
             Token::Declare => self.parse_decl_statement()?,
             Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
+            Token::Return => self.parse_return_statement()?,
             _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
         };
 
@@ -611,6 +620,22 @@ mod tests {
         assert!(parse("1()").is_err());
         assert!(parse("ja()").is_err());
         assert!(parse("\"foo\"()").is_err());
+    }
+
+    #[test]
+    fn test_return_statements() {
+        assert_eq!(
+            parse("antwoord 1;"),
+            Ok(vec![Stmt::Return(ExprInt::new(1))])
+        );
+        assert_eq!(
+            parse("antwoord 1 + 2;"),
+            Ok(vec![Stmt::Return(ExprInfix::new(
+                ExprInt::new(1),
+                Operator::Add,
+                ExprInt::new(2)
+            ))])
+        );
     }
 
     /// Parser benchmarks

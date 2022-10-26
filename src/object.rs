@@ -12,6 +12,7 @@ pub(crate) enum NlObject {
     Bool(bool),
     String(String),
     Func(Vec<String>, BlockStmt),
+    Return(Box<NlObject>),
 }
 
 impl NlObject {
@@ -38,6 +39,7 @@ impl Display for NlObject {
             NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::Null => f.write_str(""),
             NlObject::Func(_, _) => f.write_str("function"),
+            NlObject::Return(value) => return value.fmt(f),
         }
     }
 }

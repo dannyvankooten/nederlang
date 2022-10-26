@@ -84,6 +84,32 @@ pub(crate) fn eval_program(
     ast.eval(env)
 }
 
+impl Eval for Expr {
+    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+        match self {
+            Expr::Int(expr) => expr.eval(),
+            Expr::Float(expr) => expr.eval(),
+            Expr::Bool(expr) => expr.eval(),
+            Expr::String(expr) => expr.eval(),
+            Expr::Identifier(name) => Ok(env.resolve(&name)),
+            Expr::Infix(expr) => expr.eval(env),
+            Expr::If(expr) => expr.eval(env),
+            Expr::Function(name, parameters, body) => {
+                let func = NlObject::Func(parameters, body);
+                env.insert(name, func.clone());
+                Ok(func)
+            }
+            Expr::Call(expr) => expr.eval(env),
+            Expr::Prefix(expr) => expr.eval(env),
+            Expr::Assign(expr) => expr.eval(env),
+            _ => unimplemented!(
+                "Evaluating expressions of type {:?} is not yet implemented.",
+                self
+            ),
+        }
+    }
+}
+
 impl Eval for ExprAssign {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
         match *self.left {
@@ -153,22 +179,6 @@ impl Eval for ExprIf {
     }
 }
 
-impl Stmt {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        match self {
-            Stmt::Expr(expr) => expr.eval(env),
-            Stmt::Block(expr) => expr.eval_scoped(env),
-            Stmt::Let(name, value) => {
-                let value = value.eval(env)?;
-                env.insert(name, value);
-                // TODO: What to return from declare statements?
-                Ok(NlObject::Null)
-            }
-            _ => unimplemented!("Statements of type {:?} are not implemented.", self),
-        }
-    }
-}
-
 trait EvalWithScope {
     fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error>;
 }
@@ -184,11 +194,30 @@ impl EvalWithScope for BlockStmt {
 
 impl Eval for BlockStmt {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        let mut last = NlObject::Null;
+        let mut result = NlObject::Null;
         for s in self {
-            last = s.eval(env)?
+            result = match s {
+                Stmt::Expr(expr) => expr.eval(env)?,
+                Stmt::Block(expr) => expr.eval_scoped(env)?,
+                Stmt::Let(name, value) => {
+                    let value = value.eval(env)?;
+                    env.insert(name, value);
+                    // TODO: What to return from declare statements?
+                    NlObject::Null
+                }
+                Stmt::Return(expr) => return Ok(NlObject::Return(Box::new(expr.eval(env)?))),
+            };
+
+            // Return values should be returned directly
+            // without traversing the rest of the statements in this block
+            match result {
+                NlObject::Return(value) => {
+                    return Ok(*value);
+                }
+                _ => {}
+            }
         }
-        Ok(last)
+        Ok(result)
     }
 }
 
@@ -262,32 +291,6 @@ impl Eval for ExprCall {
         fn_env.outer = Some(env);
 
         return body.eval(&mut fn_env);
-    }
-}
-
-impl Eval for Expr {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        match self {
-            Expr::Int(expr) => expr.eval(),
-            Expr::Float(expr) => expr.eval(),
-            Expr::Bool(expr) => expr.eval(),
-            Expr::String(expr) => expr.eval(),
-            Expr::Identifier(name) => Ok(env.resolve(&name)),
-            Expr::Infix(expr) => expr.eval(env),
-            Expr::If(expr) => expr.eval(env),
-            Expr::Function(name, parameters, body) => {
-                let func = NlObject::Func(parameters, body);
-                env.insert(name, func.clone());
-                Ok(func)
-            }
-            Expr::Call(expr) => expr.eval(env),
-            Expr::Prefix(expr) => expr.eval(env),
-            Expr::Assign(expr) => expr.eval(env),
-            _ => unimplemented!(
-                "Evaluating expressions of type {:?} is not yet implemented.",
-                self
-            ),
-        }
     }
 }
 
@@ -595,6 +598,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_return_statements() {
+        assert_eq!(
+            eval_program("functie a() { antwoord 1; } a();", None),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            eval_program("functie a() { antwoord 1; 2; } a();", None),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            eval_program("functie a() { als ja { antwoord 1; } 2; } a();", None),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            eval_program("functie a() { als nee { antwoord 1; } 2; } a();", None),
+            Ok(NlObject::Int(2))
+        );
+        assert_eq!(
+            eval_program("{ antwoord 1; } 2;", None),
+            Ok(NlObject::Int(1))
+        );
+
+        // Currently this fails because the value is still wrapped in a Return object.
+        // assert_eq!(eval_program("antwoord 1; 2;", None), Ok(NlObject::Int(1)));
+    }
+
     #[bench]
     fn bench_fib_recursive_22(b: &mut Bencher) {
         b.iter(|| {
@@ -604,10 +634,9 @@ mod tests {
                     "
                 functie fib(n) {
                     als n < 2 {
-                        n
-                    } anders {
-                        fib(n - 1) + fib(n - 2)
-                    }    
+                        antwoord n
+                    } 
+                    fib(n - 1) + fib(n - 2)
                 }
                 
                 fib(22)

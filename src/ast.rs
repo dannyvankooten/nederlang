@@ -1,6 +1,18 @@
 use crate::lexer::Token;
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) enum Stmt {
+    Let(String, Expr),
+    Return(Expr),
+    Expr(Expr),
+    Block(BlockStmt),
+    // Break,
+    // Continue,
+}
+
+pub(crate) type BlockStmt = Vec<Stmt>;
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) enum Expr {
     Infix(ExprInfix),
     Prefix(ExprPrefix),
@@ -70,18 +82,6 @@ pub(crate) struct ExprCall {
     pub(crate) func: Box<Expr>,
     pub(crate) arguments: Vec<Expr>,
 }
-
-#[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) enum Stmt {
-    Let(String, Expr),
-    // Return(Expr),
-    Expr(Expr),
-    Block(BlockStmt),
-    // Break,
-    // Continue,
-}
-
-pub(crate) type BlockStmt = Vec<Stmt>;
 
 #[derive(PartialEq, Eq, Debug, PartialOrd, Clone)]
 pub(crate) enum Operator {
