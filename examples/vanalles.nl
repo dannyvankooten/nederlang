@@ -1,9 +1,9 @@
 functie fib(n) {
     als n < 2 {
-        n
-    } anders {
-        fib(n - 1) + fib(n - 2)
-    }    
+        antwoord n
+    } 
+
+    fib(n - 1) + fib(n - 2)
 }
 
 functie kwadraat(x) {
@@ -50,7 +50,19 @@ stel resultaat = kwadraat(a) + kwadraat(b) - 100 / 5;
 // Output: 480
 resultaat
 
+// While expression
+zolang resultaat > 0 {
+    resultaat = resultaat - 1
+}
+
+// Output: 0
+resultaat
+
+// Array
+stel getallen = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+
+// Output: 1
+getallen[0]
+
 // Calculate 35th fibonacci number
-fib(35)
-
-
+fib(15)

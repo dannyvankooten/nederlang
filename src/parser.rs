@@ -105,7 +105,7 @@ impl<'a> Parser<'a> {
     fn parse_assign_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
         // confirm left is of the correct type
         match left {
-            Expr::Identifier(_) | Expr::Index => (),
+            Expr::Identifier(_) | Expr::Index(_) => (),
             _ => {
                 return Err(ParseError::new(format!(
                     "can not assign to expression of type {:?}",
@@ -229,6 +229,37 @@ impl<'a> Parser<'a> {
         Ok(ExprCall::new(func, arguments))
     }
 
+    fn parse_while_expr(&mut self) -> Result<Expr, ParseError> {
+        // skip over Token::While
+        self.advance();
+
+        let condition = self.parse_expr(Precedence::Lowest)?;
+        let body = self.parse_block_statement()?;
+        Ok(ExprWhile::new(condition, body))
+    }
+
+    fn parse_array_expr(&mut self) -> Result<Expr, ParseError> {
+        // skip over Token::OpenBracket
+        self.advance();
+
+        let mut values = Vec::new();
+        while self.current_token != Token::CloseBracket {
+            values.push(self.parse_expr(Precedence::Lowest)?);
+            self.skip_optional(Token::Comma);
+        }
+
+        self.skip(Token::CloseBracket)?;
+        Ok(ExprArray::new(values))
+    }
+
+    fn parse_index_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
+        // skip over Token::OpenBracket
+        self.advance();
+        let index = self.parse_expr(Precedence::Lowest)?;
+        self.skip(Token::CloseBracket)?;
+        Ok(ExprIndex::new(left, index))
+    }
+
     /// Parse an expression
     fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
         let mut left = match self.current_token {
@@ -247,6 +278,8 @@ impl<'a> Parser<'a> {
             Token::Bang | Token::Minus => self.parse_prefix_expr()?,
             Token::Identifier(name) => self.parse_ident(name),
             Token::Func => self.parse_function_expr()?,
+            Token::While => self.parse_while_expr()?,
+            Token::OpenBracket => self.parse_array_expr()?,
             _ => todo!("Unsupported expression type: {:?}", self.current_token),
         };
 
@@ -266,6 +299,7 @@ impl<'a> Parser<'a> {
                 | Token::Percent => self.parse_infix_expr(left)?,
                 Token::Assign => self.parse_assign_expr(left)?,
                 Token::OpenParen => self.parse_call_expr(left)?,
+                Token::OpenBracket => self.parse_index_expr(left)?,
                 _ => return Ok(left),
             };
         }
@@ -636,6 +670,70 @@ mod tests {
                 ExprInt::new(2)
             ))])
         );
+    }
+
+    #[test]
+    fn test_array_expression() {
+        for (input, expected_ast) in [
+            ("[]", vec![Stmt::Expr(ExprArray::new(vec![]))]),
+            (
+                "[1]",
+                vec![Stmt::Expr(ExprArray::new(vec![ExprInt::new(1)]))],
+            ),
+            (
+                "[1, 2]",
+                vec![Stmt::Expr(ExprArray::new(vec![
+                    ExprInt::new(1),
+                    ExprInt::new(2),
+                ]))],
+            ),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_while_expression() {
+        for (input, expected_ast) in [
+            (
+                "zolang ja { }",
+                vec![Stmt::Expr(ExprWhile::new(
+                    ExprBool::new(true),
+                    BlockStmt::new(),
+                ))],
+            ),
+            (
+                "zolang ja { 1 }",
+                vec![Stmt::Expr(ExprWhile::new(
+                    ExprBool::new(true),
+                    vec![Stmt::Expr(ExprInt::new(1))],
+                ))],
+            ),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_index_expression() {
+        for (input, expected_ast) in [
+            (
+                "a[0]",
+                vec![Stmt::Expr(ExprIndex::new(
+                    ExprIdent::new("a"),
+                    ExprInt::new(0),
+                ))],
+            ),
+            (
+                "[1][0]",
+                vec![Stmt::Expr(ExprIndex::new(
+                    ExprArray::new(vec![ExprInt::new(1)]),
+                    ExprInt::new(0),
+                ))],
+            ),
+        ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
     }
 
     /// Parser benchmarks

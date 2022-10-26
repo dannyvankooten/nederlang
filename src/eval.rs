@@ -1,6 +1,6 @@
 use crate::ast::{
-    BlockStmt, Expr, ExprAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprInfix, ExprInt,
-    ExprPrefix, ExprString, Operator, Stmt,
+    BlockStmt, Expr, ExprArray, ExprAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprIndex,
+    ExprInfix, ExprInt, ExprPrefix, ExprString, ExprWhile, Operator, Stmt,
 };
 use crate::object::*;
 use crate::parser;
@@ -21,7 +21,7 @@ pub struct Environment<'a> {
 }
 
 pub(crate) trait Eval {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error>;
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error>;
 }
 
 impl<'a> Environment<'a> {
@@ -85,8 +85,8 @@ pub(crate) fn eval_program(
 }
 
 impl Eval for Expr {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        match self {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
+        match &self {
             Expr::Int(expr) => expr.eval(),
             Expr::Float(expr) => expr.eval(),
             Expr::Bool(expr) => expr.eval(),
@@ -101,13 +101,16 @@ impl Eval for Expr {
             Expr::Infix(expr) => expr.eval(env),
             Expr::If(expr) => expr.eval(env),
             Expr::Function(name, parameters, body) => {
-                let func = NlFuncObject::new(name.clone(), parameters, body);
-                env.insert(name, func.clone());
+                let func = NlFuncObject::new(name.clone(), parameters.clone(), body.clone());
+                env.insert(name.clone(), func.clone());
                 Ok(func)
             }
             Expr::Call(expr) => expr.eval(env),
             Expr::Prefix(expr) => expr.eval(env),
             Expr::Assign(expr) => expr.eval(env),
+            Expr::While(expr) => eval_while_expression(expr, env),
+            Expr::Array(expr) => eval_array_expression(expr, env),
+            Expr::Index(expr) => eval_index_expression(expr, env),
             _ => unimplemented!(
                 "Evaluating expressions of type {:?} is not yet implemented.",
                 self
@@ -117,8 +120,8 @@ impl Eval for Expr {
 }
 
 impl Eval for ExprAssign {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        match *self.left {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
+        match &*self.left {
             Expr::Identifier(name) => {
                 let right = self.right.eval(env)?;
                 env.update(&name, right)?;
@@ -130,7 +133,7 @@ impl Eval for ExprAssign {
 }
 
 impl Eval for ExprInfix {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         let left = self.left.eval(env)?;
         let right = self.right.eval(env)?;
 
@@ -157,7 +160,7 @@ impl Eval for ExprInfix {
 }
 
 impl Eval for ExprPrefix {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         let right = self.right.eval(env)?;
 
         match self.operator {
@@ -172,12 +175,12 @@ impl Eval for ExprPrefix {
 }
 
 impl Eval for ExprIf {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         let condition = self.condition.eval(env)?;
 
         if condition.is_truthy() {
             self.consequence.eval(env)
-        } else if let Some(alternative) = self.alternative {
+        } else if let Some(alternative) = &self.alternative {
             alternative.eval(env)
         } else {
             Ok(NlObject::Null)
@@ -186,12 +189,12 @@ impl Eval for ExprIf {
 }
 
 trait EvalWithScope {
-    fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error>;
+    fn eval_scoped(&self, env: &mut Environment) -> Result<NlObject, Error>;
 }
 
 impl EvalWithScope for BlockStmt {
     #[inline]
-    fn eval_scoped(self, env: &mut Environment) -> Result<NlObject, Error> {
+    fn eval_scoped(&self, env: &mut Environment) -> Result<NlObject, Error> {
         // BlockStmts get their own scope, so variables declare inside this block are dropped at the end
         let mut new_env = Environment::new_from(env);
         self.eval(&mut new_env)
@@ -199,7 +202,7 @@ impl EvalWithScope for BlockStmt {
 }
 
 impl Eval for BlockStmt {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         let mut result = NlObject::Null;
         for s in self {
             result = match s {
@@ -207,7 +210,7 @@ impl Eval for BlockStmt {
                 Stmt::Block(expr) => expr.eval_scoped(env)?,
                 Stmt::Let(name, value) => {
                     let value = value.eval(env)?;
-                    env.insert(name, value);
+                    env.insert(name.clone(), value);
                     // TODO: What to return from declare statements?
                     NlObject::Null
                 }
@@ -250,16 +253,16 @@ impl ExprBool {
 
 impl ExprString {
     #[inline(always)]
-    fn eval(self) -> Result<NlObject, Error> {
-        Ok(NlObject::String(self.value))
+    fn eval(&self) -> Result<NlObject, Error> {
+        Ok(NlObject::String(self.value.clone()))
     }
 }
 
 impl Eval for ExprCall {
-    fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        let func = match *self.func {
+    fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
+        let func = match &*self.func {
             Expr::Identifier(name) => {
-                let object = env.resolve(&name);
+                let object = env.resolve(name);
                 match object {
                     Some(NlObject::Func(func)) => func,
                     Some(_) => {
@@ -272,9 +275,9 @@ impl Eval for ExprCall {
                 }
             }
             Expr::Function(name, parameters, body) => NlFuncObject {
-                name,
-                parameters,
-                body,
+                name: name.clone(),
+                parameters: parameters.clone(),
+                body: body.clone(),
             },
             _ => panic!(
                 "Expression of type {:?} is not callable. Parser should have picked up on this.",
@@ -296,12 +299,61 @@ impl Eval for ExprCall {
         // Create new environment for this function to run in
         // Declare every argument as the corresponding parameter name
         let mut fn_env = Environment::new();
-        for (name, value) in std::iter::zip(func.parameters, self.arguments) {
+        for (name, value) in std::iter::zip(func.parameters, &self.arguments) {
             fn_env.insert(name, value.eval(env)?);
         }
         fn_env.outer = Some(env);
 
         return func.body.eval(&mut fn_env);
+    }
+}
+
+fn eval_array_expression(expr: &ExprArray, env: &mut Environment) -> Result<NlObject, Error> {
+    let mut values = Vec::with_capacity(expr.values.len());
+    for e in &expr.values {
+        values.push(e.eval(env)?);
+    }
+
+    Ok(NlObject::Array(values))
+}
+
+fn eval_while_expression(expr: &ExprWhile, env: &mut Environment) -> Result<NlObject, Error> {
+    while expr.condition.eval(env)?.is_truthy() {
+        expr.body.eval_scoped(env)?;
+    }
+
+    Ok(NlObject::Null)
+}
+
+fn eval_index_expression(expr: &ExprIndex, env: &mut Environment) -> Result<NlObject, Error> {
+    let left = expr.left.eval(env)?;
+    let index = expr.index.eval(env)?;
+
+    match left {
+        NlObject::Array(values) => match index {
+            NlObject::Int(idx) => {
+                if idx < 0 || idx as usize >= values.len() {
+                    return Err(Error::TypeError(format!(
+                        "out of bounds: array has length {}, but index was {}",
+                        values.len(),
+                        idx
+                    )));
+                }
+                Ok(values[idx as usize].clone())
+            }
+            _ => {
+                return Err(Error::TypeError(format!(
+                    "index must be of type int, not {}",
+                    index
+                )))
+            }
+        },
+        _ => {
+            return Err(Error::TypeError(format!(
+                "can not index into object of type {:?}",
+                left
+            )))
+        }
     }
 }
 
@@ -638,6 +690,42 @@ mod tests {
 
         // Currently this fails because the value is still wrapped in a Return object.
         // assert_eq!(eval_program("antwoord 1; 2;", None), Ok(NlObject::Int(1)));
+    }
+
+    #[test]
+    fn test_arrays() {
+        assert_eq!(eval_program("[]", None), Ok(NlObject::Array(vec![])));
+        assert_eq!(
+            eval_program("[1]", None),
+            Ok(NlObject::Array(vec![NlObject::Int(1)]))
+        );
+        assert_eq!(
+            eval_program("[1, 2]", None),
+            Ok(NlObject::Array(vec![NlObject::Int(1), NlObject::Int(2)]))
+        );
+    }
+
+    #[test]
+    fn test_while() {
+        assert_eq!(eval_program("zolang nee { }", None), Ok(NlObject::Null));
+
+        assert_eq!(
+            eval_program("stel a = 0; zolang a < 3 { a = a + 1; } a", None),
+            Ok(NlObject::Int(3))
+        );
+    }
+
+    #[test]
+    fn test_array_indexing() {
+        // a is not defined
+        assert!(eval_program("a[0]", None).is_err());
+        // out of bounds
+        assert!(eval_program("[][0]", None).is_err());
+
+        // OK:
+        assert_eq!(eval_program("[1][0]", None), Ok(NlObject::Int(1)));
+        assert_eq!(eval_program("[1, 2][0]", None), Ok(NlObject::Int(1)));
+        assert_eq!(eval_program("[1, 2][1]", None), Ok(NlObject::Int(2)));
     }
 
     #[bench]

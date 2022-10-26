@@ -12,6 +12,7 @@ pub(crate) enum NlObject {
     Bool(bool),
     String(String),
     Func(NlFuncObject),
+    Array(Vec<NlObject>),
     Return(Box<NlObject>),
 }
 
@@ -57,6 +58,16 @@ impl Display for NlObject {
             NlObject::Null => f.write_str(""),
             NlObject::Func(func) => f.write_fmt(format_args!("function {}", func.name)),
             NlObject::Return(value) => return value.fmt(f),
+            NlObject::Array(values) => {
+                f.write_str("[")?;
+                for (i, v) in values.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    v.fmt(f)?;
+                }
+                f.write_str("]")
+            }
         }
     }
 }

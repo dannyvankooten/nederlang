@@ -25,10 +25,16 @@ pub(crate) enum Expr {
     Call(ExprCall),
     Assign(ExprAssign),
     String(ExprString),
-    Array,
-    Index,
-    For,
-    While,
+    Array(ExprArray),
+    Index(ExprIndex),
+    // For(ExprFor),
+    While(ExprWhile),
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) struct ExprIndex {
+    pub(crate) left: Box<Expr>,
+    pub(crate) index: Box<Expr>,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
@@ -81,6 +87,17 @@ pub(crate) struct ExprIf {
 pub(crate) struct ExprCall {
     pub(crate) func: Box<Expr>,
     pub(crate) arguments: Vec<Expr>,
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) struct ExprWhile {
+    pub(crate) condition: Box<Expr>,
+    pub(crate) body: BlockStmt,
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub(crate) struct ExprArray {
+    pub(crate) values: Vec<Expr>,
 }
 
 #[derive(PartialEq, Eq, Debug, PartialOrd, Clone)]
@@ -175,6 +192,30 @@ impl ExprCall {
     }
 }
 
+impl ExprArray {
+    pub fn new(values: Vec<Expr>) -> Expr {
+        Expr::Array(ExprArray { values })
+    }
+}
+
+impl ExprWhile {
+    pub fn new(condition: Expr, body: BlockStmt) -> Expr {
+        Expr::While(ExprWhile {
+            condition: Box::new(condition),
+            body,
+        })
+    }
+}
+
+impl ExprIndex {
+    pub fn new(left: Expr, index: Expr) -> Expr {
+        Expr::Index(ExprIndex {
+            left: Box::new(left),
+            index: Box::new(index),
+        })
+    }
+}
+
 impl ExprInt {
     pub fn new(value: i64) -> Expr {
         Expr::Int(ExprInt { value })
@@ -196,5 +237,13 @@ impl ExprBool {
 impl ExprString {
     pub fn new(value: String) -> Expr {
         Expr::String(ExprString { value })
+    }
+}
+
+/// Just a helper struct to easily create an Expr::Identifier with owned value
+pub(crate) struct ExprIdent;
+impl ExprIdent {
+    pub fn new(v: &str) -> Expr {
+        Expr::Identifier(v.to_owned())
     }
 }
