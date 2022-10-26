@@ -2,8 +2,8 @@ use crate::ast::{
     BlockStmt, Expr, ExprArray, ExprAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprIndex,
     ExprInfix, ExprInt, ExprPrefix, ExprString, ExprWhile, Operator, Stmt,
 };
-use crate::object::*;
 use crate::parser;
+use crate::{builtins, object::*};
 use parser::ParseError;
 use std::cell::RefCell;
 
@@ -87,7 +87,7 @@ pub(crate) fn eval_program(
 
 impl Eval for Expr {
     fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
-        match &self {
+        match self {
             Expr::Int(expr) => expr.eval(),
             Expr::Float(expr) => expr.eval(),
             Expr::Bool(expr) => expr.eval(),
@@ -309,9 +309,33 @@ impl ExprString {
     }
 }
 
+fn eval_builtin_call(
+    name: &str,
+    args: &[Expr],
+    env: &mut Environment,
+) -> Option<Result<NlObject, Error>> {
+    match name {
+        "len" => {
+            let arg = args[0].eval(env);
+            if arg.is_err() {
+                return Some(arg);
+            }
+            Some(builtins::len(arg.unwrap()))
+        }
+        "print" => {
+            let arg = args[0].eval(env);
+            if arg.is_err() {
+                return Some(arg);
+            }
+            Some(builtins::print(&[arg.unwrap()]))
+        }
+        _ => None,
+    }
+}
+
 impl Eval for ExprCall {
     fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
-        let func = match &*self.func {
+        let func = match &*self.left {
             Expr::Identifier(name) => {
                 let object = env.resolve(name);
                 match object {
@@ -322,7 +346,14 @@ impl Eval for ExprCall {
                             object
                         )))
                     }
-                    _ => return Err(Error::ReferenceError(format!("{} is not defined.", name))),
+                    _ => {
+                        // No identifier with this name, try a builtin function
+                        if let Some(result) = eval_builtin_call(name, &self.arguments, env) {
+                            return result;
+                        }
+
+                        return Err(Error::ReferenceError(format!("{} is not defined.", name)));
+                    }
                 }
             }
             Expr::Function(name, parameters, body) => NlFuncObject {
@@ -332,7 +363,7 @@ impl Eval for ExprCall {
             },
             _ => panic!(
                 "Expression of type {:?} is not callable. Parser should have picked up on this.",
-                self.func
+                self.left
             ),
         };
 
@@ -797,6 +828,12 @@ mod tests {
             eval_program("stel a = [1, 2]; a[0] = 2; a[1] = 3; a", None),
             Ok(NlObject::Array(vec![NlObject::Int(2), NlObject::Int(3)]))
         );
+    }
+
+    #[test]
+    fn test_builtins() {
+        assert_eq!(eval_program("len([1, 2, 3])", None), Ok(NlObject::Int(3)));
+        assert_eq!(eval_program("len(\"foobar\")", None), Ok(NlObject::Int(6)));
     }
 
     #[bench]

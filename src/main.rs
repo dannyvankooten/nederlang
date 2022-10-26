@@ -1,6 +1,7 @@
 #![feature(test)]
 
 mod ast;
+mod builtins;
 mod eval;
 mod lexer;
 mod object;
@@ -10,7 +11,7 @@ use eval::{eval_program, Environment};
 use std::{
     fs,
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 fn repl() {

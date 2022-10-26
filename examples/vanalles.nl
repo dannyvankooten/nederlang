@@ -48,7 +48,7 @@ stel b = 20
 stel resultaat = kwadraat(a) + kwadraat(b) - 100 / 5;
 
 // Output: 480
-resultaat
+print(resultaat)
 
 // While expression
 zolang resultaat > 0 {
@@ -56,13 +56,13 @@ zolang resultaat > 0 {
 }
 
 // Output: 0
-resultaat
+print(resultaat)
 
 // Array
 stel getallen = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
 
 // Output: 1
-getallen[0]
+print(getallen[0])
 
 // Calculate 35th fibonacci number
 fib(15)

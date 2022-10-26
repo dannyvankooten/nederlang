@@ -85,7 +85,7 @@ pub(crate) struct ExprIf {
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub(crate) struct ExprCall {
-    pub(crate) func: Box<Expr>,
+    pub(crate) left: Box<Expr>,
     pub(crate) arguments: Vec<Expr>,
 }
 
@@ -186,7 +186,7 @@ impl ExprIf {
 impl ExprCall {
     pub fn new(func: Expr, arguments: Vec<Expr>) -> Expr {
         Expr::Call(ExprCall {
-            func: Box::new(func),
+            left: Box::new(func),
             arguments: arguments,
         })
     }

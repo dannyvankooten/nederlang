@@ -1,8 +1,8 @@
-use crate::ast::{BlockStmt, Operator};
+use crate::ast::BlockStmt;
 use crate::eval::Error;
 use std::fmt::Display;
+use std::ops;
 use std::string::String;
-use std::{ops, rc::Rc};
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub(crate) enum NlObject {
@@ -14,6 +14,7 @@ pub(crate) enum NlObject {
     Func(NlFuncObject),
     Array(Vec<NlObject>),
     Return(Box<NlObject>),
+    Builtin,
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
@@ -55,7 +56,6 @@ impl Display for NlObject {
             NlObject::Int(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
-            NlObject::Null => f.write_str(""),
             NlObject::Func(func) => f.write_fmt(format_args!("function {}", func.name)),
             NlObject::Return(value) => return value.fmt(f),
             NlObject::Array(values) => {
@@ -68,6 +68,9 @@ impl Display for NlObject {
                 }
                 f.write_str("]")
             }
+
+            // Write nothing for other types
+            _ => Ok(()),
         }
     }
 }
