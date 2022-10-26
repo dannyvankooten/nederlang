@@ -12,6 +12,7 @@ pub(crate) enum Error {
     TypeError(String),
     SyntaxError(ParseError),
     ReferenceError(String),
+    IndexError(String),
 }
 
 #[derive(Debug)]
@@ -119,6 +120,11 @@ impl Eval for Expr {
     }
 }
 
+#[inline(always)]
+fn is_out_of_bounds<T>(values: &Vec<T>, idx: i64) -> bool {
+    return idx < 0 || idx as usize >= values.len();
+}
+
 impl Eval for ExprAssign {
     fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         match &*self.left {
@@ -126,6 +132,51 @@ impl Eval for ExprAssign {
                 let right = self.right.eval(env)?;
                 env.update(&name, right)?;
                 return Ok(NlObject::Null);
+            }
+            Expr::Index(expr) => {
+                match &*expr.left {
+                    Expr::Identifier(name) => {
+                        let value = env.resolve(&name);
+                        if value.is_none() {
+                            return Err(Error::ReferenceError(format!("{} is not defined", name)));
+                        }
+                        let value = value.unwrap();
+                        match value {
+                            NlObject::Array(mut values) => {
+                                let index = expr.index.eval(env)?;
+                                match index {
+                                    NlObject::Int(idx) => {
+                                        if is_out_of_bounds(&values, idx) {
+                                            return Err(Error::IndexError(format!(
+                                                "Array assignment index out of bounds"
+                                            )));
+                                        }
+
+                                        let right = self.right.eval(env)?;
+                                        values[idx as usize] = right;
+                                        env.update(&name, NlObject::Array(values))?;
+                                    }
+                                    _ => {
+                                        return Err(Error::IndexError(format!(
+                                            "Can not use object of type {} as index",
+                                            index
+                                        )))
+                                    }
+                                }
+                            }
+                            _ => {
+                                return Err(Error::IndexError(format!(
+                                    "Can not index into object of type {}",
+                                    value
+                                )))
+                            }
+                        }
+                    }
+                    // assigning to a non-stored value is a no-op
+                    // we could also error here?
+                    _ => (),
+                }
+                Ok(NlObject::Null)
             }
             _ => panic!(),
         }
@@ -726,6 +777,26 @@ mod tests {
         assert_eq!(eval_program("[1][0]", None), Ok(NlObject::Int(1)));
         assert_eq!(eval_program("[1, 2][0]", None), Ok(NlObject::Int(1)));
         assert_eq!(eval_program("[1, 2][1]", None), Ok(NlObject::Int(2)));
+    }
+
+    #[test]
+    fn test_array_index_assign() {
+        // a is not defined
+        assert!(eval_program("a[0] = 1", None).is_err());
+        // The following does not err right now because we don't check anything if left hand side is not an identifier
+        // assert!(eval_program("[][0] = 1", None).is_err());
+        assert!(eval_program("stel a = [1, 2]; a[-1] = 1", None).is_err());
+        assert!(eval_program("stel a = [1, 2]; a[2] = 1", None).is_err());
+
+        // OK:
+        assert_eq!(
+            eval_program("stel a = [1]; a[0] = 2; a", None),
+            Ok(NlObject::Array(vec![NlObject::Int(2)]))
+        );
+        assert_eq!(
+            eval_program("stel a = [1, 2]; a[0] = 2; a[1] = 3; a", None),
+            Ok(NlObject::Array(vec![NlObject::Int(2), NlObject::Int(3)]))
+        );
     }
 
     #[bench]
