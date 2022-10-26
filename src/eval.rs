@@ -40,17 +40,17 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub(crate) fn resolve(&self, ident: &str) -> NlObject {
+    pub(crate) fn resolve(&self, ident: &str) -> Option<NlObject> {
         let symbols = self.symbols.borrow();
         if let Some((_, value)) = symbols.iter().find(|(name, _)| name == ident) {
-            return value.clone();
+            return Some(value.clone());
         }
 
         if let Some(outer) = &self.outer {
             return outer.resolve(ident);
         }
 
-        NlObject::Null
+        None
     }
 
     #[inline]
@@ -91,11 +91,17 @@ impl Eval for Expr {
             Expr::Float(expr) => expr.eval(),
             Expr::Bool(expr) => expr.eval(),
             Expr::String(expr) => expr.eval(),
-            Expr::Identifier(name) => Ok(env.resolve(&name)),
+            Expr::Identifier(name) => {
+                if let Some(object) = env.resolve(&name) {
+                    Ok(object)
+                } else {
+                    return Err(Error::ReferenceError(format!("{} is not defined.", name)));
+                }
+            }
             Expr::Infix(expr) => expr.eval(env),
             Expr::If(expr) => expr.eval(env),
             Expr::Function(name, parameters, body) => {
-                let func = NlObject::Func(parameters, body);
+                let func = NlFuncObject::new(name.clone(), parameters, body);
                 env.insert(name, func.clone());
                 Ok(func)
             }
@@ -251,20 +257,25 @@ impl ExprString {
 
 impl Eval for ExprCall {
     fn eval(self, env: &mut Environment) -> Result<NlObject, Error> {
-        let (parameters, body) = match *self.func {
+        let func = match *self.func {
             Expr::Identifier(name) => {
                 let object = env.resolve(&name);
                 match object {
-                    NlObject::Func(params, body) => (params, body),
-                    _ => {
+                    Some(NlObject::Func(func)) => func,
+                    Some(_) => {
                         return Err(Error::TypeError(format!(
                             "Object of type {:?} is not callable.",
                             object
                         )))
                     }
+                    _ => return Err(Error::ReferenceError(format!("{} is not defined.", name))),
                 }
             }
-            Expr::Function(_, parameters, body) => (parameters, body),
+            Expr::Function(name, parameters, body) => NlFuncObject {
+                name,
+                parameters,
+                body,
+            },
             _ => panic!(
                 "Expression of type {:?} is not callable. Parser should have picked up on this.",
                 self.func
@@ -272,12 +283,12 @@ impl Eval for ExprCall {
         };
 
         // Validate number of arguments
-        if self.arguments.len() != parameters.len() {
+        if self.arguments.len() != func.parameters.len() {
             // TODO: Supply function name here.
             return Err(Error::TypeError(format!(
                 "{} takes exactly {} arguments ({} given)",
-                "function",
-                parameters.len(),
+                func.name,
+                func.parameters.len(),
                 self.arguments.len()
             )));
         }
@@ -285,12 +296,12 @@ impl Eval for ExprCall {
         // Create new environment for this function to run in
         // Declare every argument as the corresponding parameter name
         let mut fn_env = Environment::new();
-        for (name, value) in std::iter::zip(parameters, self.arguments) {
+        for (name, value) in std::iter::zip(func.parameters, self.arguments) {
             fn_env.insert(name, value.eval(env)?);
         }
         fn_env.outer = Some(env);
 
-        return body.eval(&mut fn_env);
+        return func.body.eval(&mut fn_env);
     }
 }
 
@@ -515,7 +526,6 @@ mod tests {
     #[test]
     fn test_ident_expressions() {
         for (input, expected) in [
-            ("a", NlObject::Null),
             ("stel a = 100; a", NlObject::Int(100)),
             ("stel a = 100; stel b = 2; a", NlObject::Int(100)),
             ("stel a = 100; stel b = 2; a * b", NlObject::Int(200)),
@@ -569,7 +579,6 @@ mod tests {
     fn test_declare_statements_with_scopes() {
         for (input, expected) in [
             ("stel a = 1; { a =  2; } a", NlObject::Int(2)),
-            ("{ stel b = 1; } b", NlObject::Null),
             ("stel a = 1; { stel a = 2; } a", NlObject::Int(1)),
             ("stel a = 1; { stel b = 1; a = a + b; } a", NlObject::Int(2)),
         ] {
@@ -580,6 +589,12 @@ mod tests {
                 input
             );
         }
+    }
+
+    #[test]
+    fn test_reference_error() {
+        assert!(eval_program("a", None).is_err());
+        assert!(eval_program("{ stel b = 1; } b", None).is_err());
     }
 
     #[test]

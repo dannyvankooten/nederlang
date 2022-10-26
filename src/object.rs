@@ -11,8 +11,25 @@ pub(crate) enum NlObject {
     Float(f64),
     Bool(bool),
     String(String),
-    Func(Vec<String>, BlockStmt),
+    Func(NlFuncObject),
     Return(Box<NlObject>),
+}
+
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+pub(crate) struct NlFuncObject {
+    pub(crate) name: String,
+    pub(crate) parameters: Vec<String>,
+    pub(crate) body: BlockStmt,
+}
+
+impl NlFuncObject {
+    pub(crate) fn new(name: String, parameters: Vec<String>, body: BlockStmt) -> NlObject {
+        NlObject::Func(NlFuncObject {
+            name,
+            parameters,
+            body,
+        })
+    }
 }
 
 impl NlObject {
@@ -38,7 +55,7 @@ impl Display for NlObject {
             NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::Null => f.write_str(""),
-            NlObject::Func(_, _) => f.write_str("function"),
+            NlObject::Func(func) => f.write_fmt(format_args!("function {}", func.name)),
             NlObject::Return(value) => return value.fmt(f),
         }
     }
@@ -207,8 +224,8 @@ macro_rules! impl_cmp {
         pub fn $func_name(&self, other: &Self) -> Result<NlObject, Error> {
             match (self, other) {
                 (NlObject::String(_), NlObject::String(_)) => Ok(Bool(self $op other)),
-                (NlObject::Func(_, _), _)
-                | (_, NlObject::Func(_, _))
+                (NlObject::Func(_), _)
+                | (_, NlObject::Func(_))
                 | (NlObject::String(_), _)
                 | (_, NlObject::String(_)) => Err(Error::TypeError(format!(
                     "Comparing objects of type {:?} and {:?} is not supported",
