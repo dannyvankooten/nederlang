@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
 
     /// Parses an operator token
     fn parse_operator(&mut self) -> Operator {
-        Operator::from(&self.current_token)
+        Operator::from(self.current_token)
     }
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
@@ -595,5 +595,16 @@ mod tests {
         assert!(parse("1()").is_err());
         assert!(parse("ja()").is_err());
         assert!(parse("\"foo\"()").is_err());
+    }
+
+    /// Parser benchmarks
+    extern crate test;
+    use test::Bencher;
+    #[bench]
+    fn bench_parser(b: &mut Bencher) {
+        let input = std::fs::read_to_string("./examples/vanalles.nl").unwrap();
+        b.iter(|| {
+            assert!(parse(&input).is_ok());
+        });
     }
 }

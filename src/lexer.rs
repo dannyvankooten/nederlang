@@ -116,12 +116,14 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Peeks the next char from the input stream without consuming it.
+    #[inline]
     fn peek(&self) -> Option<char> {
         // `.next()` optimizes better than `.nth(0)`
         self.chars.clone().next()
     }
 
     /// Checks if there is nothing more to consume.
+    #[inline]
     fn is_eof(&self) -> bool {
         self.offset() >= self.input.len()
     }
@@ -134,16 +136,19 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Returns current offset into the source file
+    #[inline]
     fn offset(&self) -> usize {
         self.pos
     }
 
     /// Takes a string slice from and to given offsets, respectively
+    #[inline]
     fn read_str(&self, from: usize, to: usize) -> &'a str {
         &self.input[from..to]
     }
 
     /// Eats symbols while predicate returns true or until the end of file is reached.
+    #[inline]
     fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
         // It was tried making optimized version of this for eg. line comments, but
         // LLVM can inline all of this and compile it down to fast iteration over bytes.

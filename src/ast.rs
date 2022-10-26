@@ -102,8 +102,8 @@ pub(crate) enum Operator {
     Assign,
 }
 
-impl From<&Token<'_>> for Operator {
-    fn from(value: &Token) -> Self {
+impl From<Token<'_>> for Operator {
+    fn from(value: Token) -> Self {
         match value {
             Token::Plus => Operator::Add,
             Token::Minus => Operator::Subtract,
