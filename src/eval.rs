@@ -276,8 +276,9 @@ impl Eval for Expr {
             Expr::Infix(expr) => expr.eval(env),
             Expr::If(expr) => expr.eval(env),
             Expr::Function(name, parameters, body) => {
-                env.insert(name, NlObject::Func(parameters, body));
-                Ok(NlObject::Null)
+                let func = NlObject::Func(parameters, body);
+                env.insert(name, func.clone());
+                Ok(func)
             }
             Expr::Call(expr) => expr.eval(env),
             Expr::Prefix(expr) => expr.eval(env),

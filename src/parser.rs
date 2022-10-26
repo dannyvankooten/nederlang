@@ -52,11 +52,13 @@ impl<'a> Parser<'a> {
     }
 
     /// Advances the parser (reads the next token)
+    #[inline]
     fn advance(&mut self) {
         self.current_token = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
     /// Parses an operator token
+    #[inline]
     fn parse_operator(&mut self) -> Operator {
         Operator::from(self.current_token)
     }
@@ -131,40 +133,50 @@ impl<'a> Parser<'a> {
     }
 
     /// Skips the current token if it is of the given type
+    #[inline]
     fn skip_optional(&mut self, t: Token) {
         if self.current_token == t {
             self.advance()
         }
     }
 
+    #[inline]
     fn parse_int_expression(&mut self, strval: &str) -> Expr {
         self.advance();
         ExprInt::new(strval.parse().unwrap())
     }
 
+    #[inline]
     fn parse_float_expression(&mut self, strval: &str) -> Expr {
         self.advance();
         ExprFloat::new(strval.parse().unwrap())
     }
 
+    #[inline]
     fn parse_bool_expression(&mut self, value: bool) -> Expr {
         self.advance();
         ExprBool::new(value)
     }
 
+    #[inline]
     fn parse_string_expression(&mut self, value: &str) -> Expr {
         self.advance();
         ExprString::new(value.to_owned())
     }
 
     fn parse_function_expr(&mut self) -> Result<Expr, ParseError> {
+        // skip over Token::Func
         self.advance();
 
+        // parse optional identifier
+        // if this is not given, the function must be stored in a variable
         let name = match self.current_token {
-            Token::Identifier(name) => Ok(name),
-            _ => Err(ParseError::new("Expected identifier.".to_owned())),
-        }?;
-        self.advance();
+            Token::Identifier(name) => {
+                self.advance();
+                name
+            }
+            _ => "",
+        };
 
         let mut parameters = vec![];
         self.skip(Token::OpenParen)?;
@@ -190,11 +202,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_call_expr(&mut self, func: Expr) -> Result<Expr, ParseError> {
-        if !matches!(func, Expr::Identifier(_)) && !matches!(func, Expr::Function(_, _, _)) {
-            return Err(ParseError(format!(
-                "Expression of type {:?} is not callable.",
-                func
-            )));
+        // validate that left-hand-side is a callable expression type
+        match func {
+            Expr::Identifier(_) | Expr::Function(_, _, _) => {}
+            _ => {
+                return Err(ParseError(format!(
+                    "Expression of type {:?} is not callable.",
+                    func
+                )))
+            }
         }
 
         // skip Token::OpenParen
