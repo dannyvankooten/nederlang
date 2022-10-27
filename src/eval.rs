@@ -18,6 +18,7 @@ pub(crate) enum Error {
 #[derive(Debug)]
 pub struct Environment {
     scopes: Vec<HashMap<String, NlObject>>,
+    current_scope_idx: usize,
 }
 
 pub(crate) trait Eval {
@@ -27,25 +28,36 @@ pub(crate) trait Eval {
 impl Environment {
     #[inline]
     pub fn new() -> Self {
+        let mut scopes : Vec<HashMap<String, NlObject>> = Vec::with_capacity(256);
+        for _ in 0..256 {
+            scopes.push(HashMap::with_capacity(2));
+        }
+        
         Environment {
-            scopes: vec![HashMap::with_capacity(2)],
+            scopes: scopes,
+            current_scope_idx: 0,
         }
     }
 
     #[inline(always)]
     pub fn enter_scope(&mut self) {
-        self.scopes.push(HashMap::with_capacity(2));
+        self.current_scope_idx += 1;
+
+        if self.current_scope_idx > 1000 {
+            panic!("Warning. High scope idx.");
+        }
     }
 
     #[inline(always)]
     pub fn leave_scope(&mut self) {
-        self.scopes.pop();
+        self.scopes[self.current_scope_idx].clear();
+        self.current_scope_idx -= 1;
     }
 
     #[inline]
     pub(crate) fn resolve(&self, ident: &str) -> Option<NlObject> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(value) = scope.get(ident) {
+        for idx in (0..self.current_scope_idx+1).rev() {
+            if let Some(value) = self.scopes[idx].get(ident) {
                 return Some(value.clone());
             }
         }
@@ -55,17 +67,18 @@ impl Environment {
 
     #[inline]
     pub(crate) fn insert(&mut self, ident: String, value: NlObject) {
-        self.scopes.iter_mut().last().unwrap().insert(ident, value);
+        self.scopes[self.current_scope_idx].insert(ident, value);
+        // self.scopes.iter_mut().last().unwrap().insert(ident, value);
     }
 
     pub(crate) fn update(&mut self, ident: &str, new_value: NlObject) -> Result<(), Error> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(old_value) = scope.get_mut(ident) {
+        for idx in (0..self.current_scope_idx+1).rev() {
+            if let Some(old_value) = self.scopes[idx].get_mut(ident) {
                 *old_value = new_value;
                 return Ok(());
             }
         }
-
+    
         Err(Error::ReferenceError(format!(
             "assignment to undeclared variable {}",
             ident
@@ -381,11 +394,10 @@ impl Eval for ExprCall {
         // Create new environment for this function to run in
         // Declare every argument as the corresponding parameter name
         env.enter_scope();
-        for (name, value) in std::iter::zip(func.parameters, &self.arguments) {
+        for (name, value) in std::iter::zip(&func.parameters, &self.arguments) {
             let value = value.eval(env)?;
-            env.insert(name, value);
+            env.insert(name.to_string(), value);
         }
-
         let result = func.body.eval(env);
         env.leave_scope();
         result
