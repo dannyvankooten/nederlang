@@ -74,6 +74,7 @@ impl Environment {
     /// This also means functions declared in the top-level scope can not be re-declared.
     pub(crate) fn resolve_function(&self, ident: &str) -> Option<NlObject> {
         unsafe {
+            // Safety: Scope 0 is always set
             if let Some(value) = self.scopes.get_unchecked(0).get(ident) {
                 return Some(value.clone());
             }
@@ -373,7 +374,7 @@ impl Eval for ExprCall {
             Expr::Identifier(name) => {
                 let object = env.resolve_function(name);
                 match object {
-                    Some(NlObject::Func(func)) => func,
+                    Some(NlObject::Func(func)) => *func,
                     Some(_) => {
                         return Err(Error::TypeError(format!(
                             "Object of type {:?} is not callable.",

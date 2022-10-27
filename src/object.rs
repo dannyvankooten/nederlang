@@ -11,7 +11,7 @@ pub(crate) enum NlObject {
     Float(f64),
     Bool(bool),
     String(String),
-    Func(NlFuncObject),
+    Func(Box<NlFuncObject>),
     Array(Vec<NlObject>),
     Return(Box<NlObject>),
 }
@@ -25,11 +25,11 @@ pub(crate) struct NlFuncObject {
 
 impl NlFuncObject {
     pub(crate) fn new(name: String, parameters: Vec<String>, body: BlockStmt) -> NlObject {
-        NlObject::Func(NlFuncObject {
+        NlObject::Func(Box::new(NlFuncObject {
             name,
             parameters,
             body,
-        })
+        }))
     }
 }
 
