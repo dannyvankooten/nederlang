@@ -10,9 +10,9 @@ pub(crate) enum NlObject {
     Int(i64),
     Float(f64),
     Bool(bool),
-    String(String),
+    String(Box<String>),
     Func(Box<NlFuncObject>),
-    Array(Vec<NlObject>),
+    Array(Box<Vec<NlObject>>),
     Return(Box<NlObject>),
 }
 
@@ -89,7 +89,7 @@ impl ops::Add<NlObject> for NlObject {
                 let mut s = String::with_capacity(a.len() + b.len());
                 s.push_str(a);
                 s.push_str(b);
-                NlObject::String(s)
+                NlObject::String(Box::new(s))
             }
             _ => {
                 return Err(Error::TypeError(format!(
@@ -139,7 +139,7 @@ impl ops::Mul<NlObject> for NlObject {
                 for _ in 0..n {
                     s.push_str(a);
                 }
-                NlObject::String(s)
+                NlObject::String(Box::new(s))
             }
             _ => {
                 return Err(Error::TypeError(format!(
@@ -230,13 +230,12 @@ impl ops::Neg for NlObject {
         Ok(r)
     }
 }
-use NlObject::*;
-
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
+        #[inline]
         pub fn $func_name(&self, other: &Self) -> Result<NlObject, Error> {
             match (self, other) {
-                (NlObject::String(_), NlObject::String(_)) => Ok(Bool(self $op other)),
+                (NlObject::String(_), NlObject::String(_)) => Ok(NlObject::Bool(self $op other)),
                 (NlObject::Func(_), _)
                 | (_, NlObject::Func(_))
                 | (NlObject::String(_), _)
@@ -244,7 +243,7 @@ macro_rules! impl_cmp {
                     "Comparing objects of type {:?} and {:?} is not supported",
                     self, other
                 ))),
-                _ => Ok(Bool(self $op other)),
+                _ => Ok(NlObject::Bool(self $op other)),
             }
         }
     };
@@ -256,11 +255,13 @@ impl NlObject {
     impl_cmp!(lt, <);
     impl_cmp!(lte, <=);
 
+    #[inline]
     pub fn eq(&self, other: &Self) -> Result<NlObject, Error> {
-        Ok(Bool(self == other))
+        Ok(NlObject::Bool(self == other))
     }
 
+    #[inline]
     pub fn neq(&self, other: &Self) -> Result<NlObject, Error> {
-        Ok(Bool(self != other))
+        Ok(NlObject::Bool(self != other))
     }
 }

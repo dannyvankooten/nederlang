@@ -339,7 +339,7 @@ impl ExprBool {
 impl ExprString {
     #[inline(always)]
     fn eval(&self) -> Result<NlObject, Error> {
-        Ok(NlObject::String(self.value.clone()))
+        Ok(NlObject::String(Box::new(self.value.clone())))
     }
 }
 
@@ -437,7 +437,7 @@ fn eval_array_expression(expr: &ExprArray, env: &mut Environment) -> Result<NlOb
         values.push(e.eval(env)?);
     }
 
-    Ok(NlObject::Array(values))
+    Ok(NlObject::Array(Box::new(values)))
 }
 
 fn eval_while_expression(expr: &ExprWhile, env: &mut Environment) -> Result<NlObject, Error> {
@@ -633,8 +633,14 @@ mod tests {
     #[test]
     fn test_string_infix_expressions() {
         for (input, expected) in [
-            ("\"foo\" + \"bar\"", NlObject::String("foobar".to_owned())),
-            ("\"foo\" * 2", NlObject::String("foofoo".to_owned())),
+            (
+                "\"foo\" + \"bar\"",
+                NlObject::String(Box::new("foobar".to_owned())),
+            ),
+            (
+                "\"foo\" * 2",
+                NlObject::String(Box::new("foofoo".to_owned())),
+            ),
             ("\"foo\" == \"foo\"", NlObject::Bool(true)),
             ("\"foo\" != \"foo\"", NlObject::Bool(false)),
             ("\"foo\" >= \"foo\"", NlObject::Bool(true)),
@@ -824,14 +830,20 @@ mod tests {
 
     #[test]
     fn test_arrays() {
-        assert_eq!(eval_program("[]", None), Ok(NlObject::Array(vec![])));
+        assert_eq!(
+            eval_program("[]", None),
+            Ok(NlObject::Array(Box::new(vec![])))
+        );
         assert_eq!(
             eval_program("[1]", None),
-            Ok(NlObject::Array(vec![NlObject::Int(1)]))
+            Ok(NlObject::Array(Box::new(vec![NlObject::Int(1)])))
         );
         assert_eq!(
             eval_program("[1, 2]", None),
-            Ok(NlObject::Array(vec![NlObject::Int(1), NlObject::Int(2)]))
+            Ok(NlObject::Array(Box::new(vec![
+                NlObject::Int(1),
+                NlObject::Int(2)
+            ])))
         );
     }
 
@@ -870,11 +882,14 @@ mod tests {
         // OK:
         assert_eq!(
             eval_program("stel a = [1]; a[0] = 2; a", None),
-            Ok(NlObject::Array(vec![NlObject::Int(2)]))
+            Ok(NlObject::Array(Box::new(vec![NlObject::Int(2)])))
         );
         assert_eq!(
             eval_program("stel a = [1, 2]; a[0] = 2; a[1] = 3; a", None),
-            Ok(NlObject::Array(vec![NlObject::Int(2), NlObject::Int(3)]))
+            Ok(NlObject::Array(Box::new(vec![
+                NlObject::Int(2),
+                NlObject::Int(3)
+            ])))
         );
     }
 
