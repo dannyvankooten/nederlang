@@ -4,8 +4,8 @@ use crate::ast::{
 };
 use crate::parser;
 use crate::{builtins, object::*};
+use hashbrown::HashMap;
 use parser::ParseError;
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Error {
@@ -18,21 +18,23 @@ pub(crate) enum Error {
 #[derive(Debug)]
 pub struct Environment {
     scopes: Vec<HashMap<String, NlObject>>,
-    current_scope_idx: usize,
+    current_scope_idx: u8,
 }
 
 pub(crate) trait Eval {
     fn eval(&self, env: &mut Environment) -> Result<NlObject, Error>;
 }
 
+const MAX_SCOPES: u8 = 64;
+
 impl Environment {
     #[inline]
     pub fn new() -> Self {
-        let mut scopes : Vec<HashMap<String, NlObject>> = Vec::with_capacity(256);
-        for _ in 0..256 {
-            scopes.push(HashMap::with_capacity(2));
+        let mut scopes: Vec<HashMap<String, NlObject>> = Vec::with_capacity(MAX_SCOPES as usize);
+        for _ in 0..MAX_SCOPES {
+            scopes.push(HashMap::new());
         }
-        
+
         Environment {
             scopes: scopes,
             current_scope_idx: 0,
@@ -43,22 +45,22 @@ impl Environment {
     pub fn enter_scope(&mut self) {
         self.current_scope_idx += 1;
 
-        if self.current_scope_idx > 1000 {
-            panic!("Warning. High scope idx.");
-        }
+        debug_assert!(self.current_scope_idx < MAX_SCOPES);
     }
 
     #[inline(always)]
     pub fn leave_scope(&mut self) {
-        self.scopes[self.current_scope_idx].clear();
+        self.scopes[self.current_scope_idx as usize].clear();
         self.current_scope_idx -= 1;
     }
 
     #[inline]
     pub(crate) fn resolve(&self, ident: &str) -> Option<NlObject> {
-        for idx in (0..self.current_scope_idx+1).rev() {
-            if let Some(value) = self.scopes[idx].get(ident) {
-                return Some(value.clone());
+        for idx in (0..self.current_scope_idx + 1).rev() {
+            unsafe {
+                if let Some(value) = self.scopes.get_unchecked(idx as usize).get(ident) {
+                    return Some(value.clone());
+                }
             }
         }
 
@@ -66,19 +68,37 @@ impl Environment {
     }
 
     #[inline]
+    /// Resolves a function
+    /// Right now the only difference with resolve is that this looks at the top-scope first
+    /// Only if function is not in top scope, it starts looking locally
+    /// This also means functions declared in the top-level scope can not be re-declared.
+    pub(crate) fn resolve_function(&self, ident: &str) -> Option<NlObject> {
+        unsafe {
+            if let Some(value) = self.scopes.get_unchecked(0).get(ident) {
+                return Some(value.clone());
+            }
+        }
+
+        return self.resolve(ident);
+    }
+
+    #[inline]
     pub(crate) fn insert(&mut self, ident: String, value: NlObject) {
-        self.scopes[self.current_scope_idx].insert(ident, value);
-        // self.scopes.iter_mut().last().unwrap().insert(ident, value);
+        unsafe {
+            self.scopes
+                .get_unchecked_mut(self.current_scope_idx as usize)
+                .insert(ident, value);
+        }
     }
 
     pub(crate) fn update(&mut self, ident: &str, new_value: NlObject) -> Result<(), Error> {
-        for idx in (0..self.current_scope_idx+1).rev() {
-            if let Some(old_value) = self.scopes[idx].get_mut(ident) {
+        for idx in (0..self.current_scope_idx + 1).rev() {
+            if let Some(old_value) = self.scopes[idx as usize].get_mut(ident) {
                 *old_value = new_value;
                 return Ok(());
             }
         }
-    
+
         Err(Error::ReferenceError(format!(
             "assignment to undeclared variable {}",
             ident
@@ -349,8 +369,9 @@ fn eval_builtin_call(
 impl Eval for ExprCall {
     fn eval(&self, env: &mut Environment) -> Result<NlObject, Error> {
         let func = match &*self.left {
+            // LHS is an identifier
             Expr::Identifier(name) => {
-                let object = env.resolve(name);
+                let object = env.resolve_function(name);
                 match object {
                     Some(NlObject::Func(func)) => func,
                     Some(_) => {
@@ -369,6 +390,7 @@ impl Eval for ExprCall {
                     }
                 }
             }
+            // LHS is a direct function expression
             Expr::Function(name, parameters, body) => NlFuncObject {
                 name: name.clone(),
                 parameters: parameters.clone(),
@@ -398,9 +420,13 @@ impl Eval for ExprCall {
             let value = value.eval(env)?;
             env.insert(name.to_string(), value);
         }
-        let result = func.body.eval(env);
+        let result = func.body.eval(env)?;
         env.leave_scope();
-        result
+
+        if let NlObject::Return(return_value) = result {
+            return Ok(*return_value);
+        }
+        Ok(result)
     }
 }
 
@@ -777,6 +803,13 @@ mod tests {
         );
         assert_eq!(
             eval_program("functie a() { als nee { antwoord 1; } 2; } a();", None),
+            Ok(NlObject::Int(2))
+        );
+        assert_eq!(
+            eval_program(
+                "functie b() { antwoord 1 }; functie a() { antwoord b() + b(); }; a();",
+                None
+            ),
             Ok(NlObject::Int(2))
         );
         assert_eq!(

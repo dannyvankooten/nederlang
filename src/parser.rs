@@ -670,6 +670,15 @@ mod tests {
                 ExprInt::new(2)
             ))])
         );
+
+        assert_eq!(
+            parse("antwoord fib(1) + fib(2);"),
+            Ok(vec![Stmt::Return(ExprInfix::new(
+                ExprCall::new(ExprIdent::new("fib"), vec![ExprInt::new(1)]),
+                Operator::Add,
+                ExprCall::new(ExprIdent::new("fib"), vec![ExprInt::new(2)]),
+            ))])
+        );
     }
 
     #[test]

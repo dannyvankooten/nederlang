@@ -14,7 +14,6 @@ pub(crate) enum NlObject {
     Func(NlFuncObject),
     Array(Vec<NlObject>),
     Return(Box<NlObject>),
-    Builtin,
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
