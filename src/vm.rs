@@ -32,6 +32,7 @@ pub(crate) fn run_str(program: &str) -> Result<NlObject, Error> {
 fn run(program: CompiledProgram) -> Result<NlObject, Error> {
     let mut ip = 0;
     let constants = program.constants;
+    let bytecode = &program.scopes[0].bytecode;
     let mut stack: Vec<NlObject> = Vec::with_capacity(512);
     let mut result = NlObject::Null;
 
@@ -56,18 +57,18 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
         }};
     }
 
-    if program.bytecode.is_empty() {
+    if bytecode.is_empty() {
         return Ok(result);
     }
 
     loop {
         // println!("Stack: {:?}", stack);
-        // println!("Next bytes: {:?} {:?} {:?}", OpCode::from(*program.bytecode.get(ip).unwrap()) , program.bytecode.get(ip+1), program.bytecode.get(ip+2));
+        // println!("Next bytes: {:?} {:?} {:?}", OpCode::from(*bytecode.get(ip).unwrap()) , bytecode.get(ip+1), bytecode.get(ip+2));
 
-        let opcode = OpCode::from(program.bytecode[ip]);
+        let opcode = OpCode::from(bytecode[ip]);
         match opcode {
             OpCode::Const => {
-                let idx = read_uint16!(program.bytecode[ip + 1], program.bytecode[ip + 2]);
+                let idx = read_uint16!(bytecode[ip + 1], bytecode[ip + 2]);
                 stack.push(constants[idx].clone());
                 ip += 3;
             }
@@ -79,11 +80,11 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
                 stack.push(NlObject::Null);
                 ip += 1;
             }
-            OpCode::Jump => ip = read_uint16!(program.bytecode[ip + 1], program.bytecode[ip + 2]),
+            OpCode::Jump => ip = read_uint16!(bytecode[ip + 1], bytecode[ip + 2]),
             OpCode::JumpIfFalse => {
                 let condition = stack.pop().unwrap();
                 if !condition.is_truthy() {
-                    ip = read_uint16!(program.bytecode[ip + 1], program.bytecode[ip + 2])
+                    ip = read_uint16!(bytecode[ip + 1], bytecode[ip + 2])
                 } else {
                     ip += 3;
                 }

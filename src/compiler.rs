@@ -29,6 +29,9 @@ pub(crate) enum OpCode {
     Jump,
     JumpIfFalse,
     Null,
+    Return,
+    ReturnValue,
+    Call,
     Halt,
 }
 
@@ -36,7 +39,7 @@ const IP_PLACEHOLDER: usize = 99999;
 
 /// Lookup table for quickly converting from u8 to OpCode variant
 /// The order here is significant!
-static U8_TO_OPCODE_MAP: [OpCode; 18] = [
+static U8_TO_OPCODE_MAP: [OpCode; 21] = [
     OpCode::Const,
     OpCode::Pop,
     OpCode::True,
@@ -54,6 +57,9 @@ static U8_TO_OPCODE_MAP: [OpCode; 18] = [
     OpCode::Jump,
     OpCode::JumpIfFalse,
     OpCode::Null,
+    OpCode::Return,
+    OpCode::ReturnValue,
+    OpCode::Call,
     OpCode::Halt,
 ];
 
@@ -84,21 +90,34 @@ impl Display for OpCode {
             OpCode::Jump => f.write_str("Jump"),
             OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
             OpCode::Null => f.write_str("Null"),
+            OpCode::Return => f.write_str("Return"),
+            OpCode::ReturnValue => f.write_str("ReturnValue"),
+            OpCode::Call => f.write_str("Call"),
             OpCode::Halt => f.write_str("Halt"),
         }
     }
 }
 
-pub(crate) struct CompiledProgram {
+pub(crate) struct CompilerScope {
+    symbols: Vec<String>,
     pub(crate) bytecode: Vec<u8>,
+}
+
+pub(crate) struct CompiledProgram {
     pub(crate) constants: Vec<NlObject>,
+    pub(crate) scopes: Vec<CompilerScope>,
+    current_scope: usize,
 }
 
 impl CompiledProgram {
     fn new() -> Self {
         CompiledProgram {
-            bytecode: Vec::new(),
             constants: Vec::new(),
+            scopes: vec![CompilerScope {
+                symbols: Vec::new(),
+                bytecode: Vec::with_capacity(256),
+            }],
+            current_scope: 0,
         }
     }
 
@@ -108,38 +127,84 @@ impl CompiledProgram {
     }
 
     fn add_instruction(&mut self, operand: OpCode, value: usize) -> usize {
-        let pos = self.bytecode.len();
+        let pos = self.current_scope().bytecode.len();
 
         match operand {
             // Opcodes with 2 operands (2^16 max value)
             OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
-                self.bytecode.push(operand as u8);
-                self.bytecode.push(byte!(value, 0));
-                self.bytecode.push(byte!(value, 1));
+                self.current_scope_mut().bytecode.push(operand as u8);
+                self.current_scope_mut().bytecode.push(byte!(value, 0));
+                self.current_scope_mut().bytecode.push(byte!(value, 1));
             }
             // OpCodes with 1 operand:
-            // -
+            OpCode::Call => {
+                self.current_scope_mut().bytecode.push(operand as u8);
+                self.current_scope_mut().bytecode.push(byte!(value, 0));
+            }
 
             // OpCodes with 0 operands:
-            OpCode::True | OpCode::False | OpCode::Null => self.bytecode.push(operand as u8),
-            _ => unimplemented!("operand {:?} not implemented.", operand),
+            _ => self.current_scope_mut().bytecode.push(operand as u8),
         }
 
         pos
     }
 
+    pub(crate) fn current_scope_mut(&mut self) -> &mut CompilerScope {
+        self.scopes.iter_mut().last().unwrap()
+    }
+
+    pub(crate) fn current_scope(&self) -> &CompilerScope {
+        self.scopes.iter().last().unwrap()
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(CompilerScope {
+            symbols: Vec::new(),
+            bytecode: Vec::with_capacity(256),
+        });
+        self.current_scope += 1;
+    }
+
+    fn leave_scope(&mut self) -> CompilerScope {
+        self.current_scope -= 1;
+        self.scopes.pop().unwrap()
+    }
+
+    fn current_instructions_len(&self) -> usize {
+        return self.scopes[self.current_scope].bytecode.len();
+    }
+
+    fn last_instruction_is(&self, op: OpCode) -> bool {
+        self.current_scope().bytecode.iter().last() == Some(&(op as u8))
+    }
+
+    fn replace_last_instruction(&mut self, op: OpCode) {
+        let last_instruction = self.current_scope_mut().bytecode.iter_mut().last().unwrap();
+        *last_instruction = op as u8;
+    }
+
+    fn replace_last_instruction_if(&mut self, old_op: OpCode, new_op: OpCode) {
+        if self.last_instruction_is(old_op) {
+            self.replace_last_instruction(new_op);
+        }
+    }
+
+    fn remove_last_instruction(&mut self) {
+        self.current_scope_mut().bytecode.pop();
+    }
+
     fn remove_last_instruction_if(&mut self, op: OpCode) {
-        if self.bytecode[self.bytecode.len() - 1] == op as u8 {
-            self.bytecode.pop();
+        if self.last_instruction_is(op) {
+            self.remove_last_instruction();
         }
     }
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
-        assert_eq!(self.bytecode[pos], op as u8);
+        assert_eq!(self.current_scope().bytecode[pos], op as u8);
 
         // TODO: For opcodes with less than 2 operands, we need to account for it here.
-        self.bytecode[pos + 1] = byte!(new_value, 0);
-        self.bytecode[pos + 2] = byte!(new_value, 1);
+        self.current_scope_mut().bytecode[pos + 1] = byte!(new_value, 0);
+        self.current_scope_mut().bytecode[pos + 2] = byte!(new_value, 1);
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) {
@@ -152,7 +217,7 @@ impl CompiledProgram {
         match stmt {
             Stmt::Expr(expr) => {
                 self.compile_expression(expr);
-                self.bytecode.push(OpCode::Pop as u8);
+                self.add_instruction(OpCode::Pop, 0);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts),
             _ => unimplemented!("Can not yet compile statements of type {:?}", stmt),
@@ -173,16 +238,16 @@ impl CompiledProgram {
             Operator::Neq => OpCode::Neq,
             _ => unimplemented!("Operators of type {:?} not yet implemented.", operator),
         };
-        self.bytecode.push(opcode as u8);
+        self.add_instruction(opcode, 0);
     }
 
     fn compile_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Bool(expr) => {
                 if expr.value {
-                    self.bytecode.push(OpCode::True as u8);
+                    self.add_instruction(OpCode::True, 0);
                 } else {
-                    self.bytecode.push(OpCode::False as u8);
+                    self.add_instruction(OpCode::False, 0);
                 }
             }
             Expr::Float(expr) => {
@@ -211,7 +276,7 @@ impl CompiledProgram {
                 self.change_instruction_operand_at(
                     OpCode::JumpIfFalse,
                     pos_jump_before_consequence,
-                    self.bytecode.len(),
+                    self.current_instructions_len(),
                 );
 
                 if let Some(alternative) = &expr.alternative {
@@ -225,9 +290,43 @@ impl CompiledProgram {
                 self.change_instruction_operand_at(
                     OpCode::Jump,
                     pos_jump_after_consequence,
-                    self.bytecode.len(),
+                    self.current_instructions_len(),
                 );
             }
+            Expr::Function(_name, parameters, body) => {
+                self.enter_scope();
+
+                for p in parameters {
+                    self.current_scope_mut().symbols.push(p.clone());
+                }
+
+                self.compile_block_statement(body);
+
+                // TODO: If last instruction is OpCode::Pop, replace it with OpCode::ReturnValue
+                // TODO: Else, if last instruction is not OpCode::ReturnValue, add OpCode::Return (for speed)?
+                if self.last_instruction_is(OpCode::Pop) {
+                    self.replace_last_instruction(OpCode::ReturnValue);
+                } else if !self.last_instruction_is(OpCode::ReturnValue) {
+                    self.add_instruction(OpCode::Return, 0);
+                }
+
+                let compiled_function = self.leave_scope();
+                let id = self.add_constant(NlObject::CompiledFunction(
+                    compiled_function.bytecode,
+                    compiled_function.symbols.len() as u8,
+                ));
+                self.add_instruction(OpCode::Const, id);
+            }
+            Expr::Call(expr) => {
+                self.compile_expression(&expr.left);
+
+                for a in &expr.arguments {
+                    self.compile_expression(a);
+                }
+
+                self.add_instruction(OpCode::Call, expr.arguments.len());
+            }
+
             _ => unimplemented!("Can not yet compile expressions of type {:?}", expr),
         }
     }
@@ -236,7 +335,7 @@ impl CompiledProgram {
 pub(crate) fn compile(program: &BlockStmt) -> CompiledProgram {
     let mut cp = CompiledProgram::new();
     cp.compile_block_statement(program);
-    cp.bytecode.push(OpCode::Halt as u8);
+    cp.add_instruction(OpCode::Halt, 0);
     cp
 }
 
@@ -252,6 +351,7 @@ mod tests {
         loop {
             let op = OpCode::from(code[ip]);
             match op {
+                // OpCodes with 2 operands:
                 OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
                     str.push_str(&op.to_string());
                     str.push_str(&format!(
@@ -260,10 +360,21 @@ mod tests {
                     ));
                     ip += 3;
                 }
+
+                // OpCodes with 1 operand:
+                OpCode::Call => {
+                    str.push_str(&op.to_string());
+                    str.push_str(&format!("({})", code[ip + 1]));
+                    ip += 2;
+                }
+
+                // Halt (end of program, return str)
                 OpCode::Halt => {
                     str.truncate(str.trim().len());
                     return str;
                 }
+
+                // Single opcode (no operands)
                 _ => {
                     str.push_str(&op.to_string());
                     ip += 1;
@@ -275,7 +386,8 @@ mod tests {
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
-        let bytecode = &compile(&ast).bytecode;
+        let compiled = compile(&ast);
+        let bytecode = &compiled.current_scope().bytecode;
         bytecode_to_human(bytecode)
     }
 
@@ -341,6 +453,23 @@ mod tests {
         assert_eq!(
             run("als ja { 1 } anders { 2 }"),
             "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop"
+        );
+    }
+
+    #[test]
+    fn test_function_expression() {
+        // Const(0) is inside the function
+        // Const(1) is the compiled function
+        assert_eq!(run("functie() { 1 }"), "Const(1) Pop");
+    }
+
+    #[test]
+    fn test_call_expression() {
+        // Const(0) is inside the function
+        // Const(1) is the compiled function
+        assert_eq!(
+            run("functie(a, b) { 1 }(1, 2)"),
+            "Const(1) Const(2) Const(3) Call(2) Pop"
         );
     }
 }
