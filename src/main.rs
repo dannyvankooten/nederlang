@@ -2,10 +2,12 @@
 
 mod ast;
 mod builtins;
+mod compiler;
 mod eval;
 mod lexer;
 mod object;
 mod parser;
+mod vm;
 
 use eval::{eval_program, Environment};
 use std::{
