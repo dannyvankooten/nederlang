@@ -1,9 +1,11 @@
+use std::fmt::Display;
+
 use crate::ast::*;
 use crate::object::NlObject;
 
 macro_rules! byte {
     ($value:expr, $position:literal) => {
-        ($value >> $position) as u8
+        (($value >> (8 * $position)) & 0xff) as u8
     };
 }
 
@@ -24,12 +26,17 @@ pub(crate) enum OpCode {
     Lte,
     Eq,
     Neq,
+    Jump,
+    JumpIfFalse,
+    Null,
     Halt,
 }
 
+const IP_PLACEHOLDER: usize = 99999;
+
 /// Lookup table for quickly converting from u8 to OpCode variant
 /// The order here is significant!
-static U8_TO_OPCOPDE_MAP: [OpCode; 15] = [
+static U8_TO_OPCODE_MAP: [OpCode; 18] = [
     OpCode::Const,
     OpCode::Pop,
     OpCode::True,
@@ -44,13 +51,41 @@ static U8_TO_OPCOPDE_MAP: [OpCode; 15] = [
     OpCode::Lte,
     OpCode::Eq,
     OpCode::Neq,
+    OpCode::Jump,
+    OpCode::JumpIfFalse,
+    OpCode::Null,
     OpCode::Halt,
 ];
 
 impl From<u8> for OpCode {
     #[inline]
     fn from(value: u8) -> Self {
-        unsafe { return *U8_TO_OPCOPDE_MAP.get_unchecked(value as usize) }
+        unsafe { return *U8_TO_OPCODE_MAP.get_unchecked(value as usize) }
+    }
+}
+
+impl Display for OpCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            OpCode::Const => f.write_str("Const"),
+            OpCode::Pop => f.write_str("Pop"),
+            OpCode::True => f.write_str("True"),
+            OpCode::False => f.write_str("False"),
+            OpCode::Add => f.write_str("Add"),
+            OpCode::Subtract => f.write_str("Subtract"),
+            OpCode::Divide => f.write_str("Divide"),
+            OpCode::Multiply => f.write_str("Multiply"),
+            OpCode::Gt => f.write_str("Gt"),
+            OpCode::Gte => f.write_str("Gte"),
+            OpCode::Lt => f.write_str("Lt"),
+            OpCode::Lte => f.write_str("Lte"),
+            OpCode::Eq => f.write_str("Eq"),
+            OpCode::Neq => f.write_str("Neq"),
+            OpCode::Jump => f.write_str("Jump"),
+            OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
+            OpCode::Null => f.write_str("Null"),
+            OpCode::Halt => f.write_str("Halt"),
+        }
     }
 }
 
@@ -72,28 +107,59 @@ impl CompiledProgram {
         self.constants.len() - 1
     }
 
-    fn statement(&mut self, stmt: &Stmt) {
-        match stmt {
-            Stmt::Expr(expr) => {
-                self.expression(expr);
-                self.bytecode.push(OpCode::Pop as u8);
-            }
-            _ => unimplemented!("Can not yet compile statements of type {:?}", stmt),
-        }
-    }
+    fn add_instruction(&mut self, operand: OpCode, value: usize) -> usize {
+        let pos = self.bytecode.len();
 
-    fn add_instruction(&mut self, operand: OpCode, value: usize) {
         match operand {
-            OpCode::Const => {
+            // Opcodes with 2 operands (2^16 max value)
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
                 self.bytecode.push(operand as u8);
                 self.bytecode.push(byte!(value, 0));
                 self.bytecode.push(byte!(value, 1));
             }
-            _ => unimplemented!(),
+            // OpCodes with 1 operand:
+            // -
+
+            // OpCodes with 0 operands:
+            OpCode::True | OpCode::False | OpCode::Null => self.bytecode.push(operand as u8),
+            _ => unimplemented!("operand {:?} not implemented.", operand),
+        }
+
+        pos
+    }
+
+    fn remove_last_instruction_if(&mut self, op: OpCode) {
+        if self.bytecode[self.bytecode.len() - 1] == op as u8 {
+            self.bytecode.pop();
         }
     }
 
-    fn operator(&mut self, operator: &Operator) {
+    fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
+        assert_eq!(self.bytecode[pos], op as u8);
+
+        // TODO: For opcodes with less than 2 operands, we need to account for it here.
+        self.bytecode[pos + 1] = byte!(new_value, 0);
+        self.bytecode[pos + 2] = byte!(new_value, 1);
+    }
+
+    fn compile_block_statement(&mut self, stmts: &[Stmt]) {
+        for s in stmts {
+            self.compile_statement(s);
+        }
+    }
+
+    fn compile_statement(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(expr) => {
+                self.compile_expression(expr);
+                self.bytecode.push(OpCode::Pop as u8);
+            }
+            Stmt::Block(stmts) => self.compile_block_statement(stmts),
+            _ => unimplemented!("Can not yet compile statements of type {:?}", stmt),
+        }
+    }
+
+    fn compile_operator(&mut self, operator: &Operator) {
         let opcode = match operator {
             Operator::Add => OpCode::Add,
             Operator::Subtract => OpCode::Subtract,
@@ -110,7 +176,7 @@ impl CompiledProgram {
         self.bytecode.push(opcode as u8);
     }
 
-    fn expression(&mut self, expr: &Expr) {
+    fn compile_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Bool(expr) => {
                 if expr.value {
@@ -128,9 +194,39 @@ impl CompiledProgram {
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Infix(expr) => {
-                self.expression(&*expr.left);
-                self.expression(&*expr.right);
-                self.operator(&expr.operator);
+                self.compile_expression(&*expr.left);
+                self.compile_expression(&*expr.right);
+                self.compile_operator(&expr.operator);
+            }
+            Expr::If(expr) => {
+                self.compile_expression(&expr.condition);
+                let pos_jump_before_consequence =
+                    self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
+                self.compile_block_statement(&expr.consequence);
+                self.remove_last_instruction_if(OpCode::Pop);
+
+                let pos_jump_after_consequence = self.add_instruction(OpCode::Jump, IP_PLACEHOLDER);
+
+                // Change operand of last JumpIfFalse opcode to where we're currently at
+                self.change_instruction_operand_at(
+                    OpCode::JumpIfFalse,
+                    pos_jump_before_consequence,
+                    self.bytecode.len(),
+                );
+
+                if let Some(alternative) = &expr.alternative {
+                    self.compile_block_statement(alternative);
+                    self.remove_last_instruction_if(OpCode::Pop);
+                } else {
+                    self.add_instruction(OpCode::Null, 0);
+                }
+
+                // Change operand of last JumpIfFalse opcode to where we're currently at
+                self.change_instruction_operand_at(
+                    OpCode::Jump,
+                    pos_jump_after_consequence,
+                    self.bytecode.len(),
+                );
             }
             _ => unimplemented!("Can not yet compile expressions of type {:?}", expr),
         }
@@ -139,13 +235,8 @@ impl CompiledProgram {
 
 pub(crate) fn compile(program: &BlockStmt) -> CompiledProgram {
     let mut cp = CompiledProgram::new();
-    for statement in program {
-        cp.statement(statement);
-    }
-
-    // end every program with OpCode::Halt so we can match on it to know when we're finished
+    cp.compile_block_statement(program);
     cp.bytecode.push(OpCode::Halt as u8);
-
     cp
 }
 
@@ -154,147 +245,102 @@ mod tests {
     use super::*;
     use crate::parser::parse;
 
+    fn bytecode_to_human(code: &[u8]) -> String {
+        let mut ip = 0;
+        let mut str = String::with_capacity(256);
+
+        loop {
+            let op = OpCode::from(code[ip]);
+            match op {
+                OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+                    str.push_str(&op.to_string());
+                    str.push_str(&format!(
+                        "({})",
+                        code[ip + 1] as usize + ((code[ip + 2] as usize) << 8)
+                    ));
+                    ip += 3;
+                }
+                OpCode::Halt => {
+                    str.truncate(str.trim().len());
+                    return str;
+                }
+                _ => {
+                    str.push_str(&op.to_string());
+                    ip += 1;
+                }
+            }
+            str.push_str(" ");
+        }
+    }
+
+    fn run(program: &str) -> String {
+        let ast = parse(program).unwrap();
+        let bytecode = &compile(&ast).bytecode;
+        bytecode_to_human(bytecode)
+    }
+
+    #[test]
+    fn test_macro() {
+        assert_eq!(byte!(0, 0), 0);
+        assert_eq!(byte!(0, 1), 0);
+
+        assert_eq!(byte!(1, 0), 1);
+        assert_eq!(byte!(1, 1), 0);
+
+        assert_eq!(byte!(32, 0), 32);
+        assert_eq!(byte!(32, 1), 0);
+
+        assert_eq!(byte!(65535, 0), 255);
+        assert_eq!(byte!(65535, 1), 255);
+
+        assert_eq!(byte!(255, 0), 255);
+        assert_eq!(byte!(255, 1), 0);
+    }
+
     #[test]
     fn test_int_expression() {
-        let ast = parse("5").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
-        );
-
-        let ast = parse("5; 5").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
-        );
+        assert_eq!(run("5"), "Const(0) Pop");
+        assert_eq!(run("5; 5"), "Const(0) Pop Const(1) Pop");
     }
 
     #[test]
     fn test_bool_expression() {
-        let ast = parse("ja").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [OpCode::True as u8, OpCode::Pop as u8, OpCode::Halt as u8]
-        );
-
-        let ast = parse("nee").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [OpCode::False as u8, OpCode::Pop as u8, OpCode::Halt as u8]
-        );
+        assert_eq!(run("ja"), "True Pop");
+        assert_eq!(run("nee"), "False Pop");
     }
 
     #[test]
     fn test_float_expression() {
-        let ast = parse("1.23").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
-        );
-
-        let ast = parse("1.23; 2.23").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
-        );
+        assert_eq!(run("1.23"), "Const(0) Pop");
+        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(1) Pop");
     }
 
     #[test]
     fn test_infix_expression() {
-        let ast = parse("1 + 2").unwrap();
+        assert_eq!(run("1 + 2"), "Const(0) Const(1) Add Pop");
+        assert_eq!(run("1 - 2"), "Const(0) Const(1) Subtract Pop");
+        assert_eq!(run("1 * 2"), "Const(0) Const(1) Multiply Pop");
+        assert_eq!(run("1 / 2"), "Const(0) Const(1) Divide Pop");
         assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Add as u8,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
+            run("1 * 2 * 3"),
+            "Const(0) Const(1) Multiply Const(2) Multiply Pop"
         );
+    }
 
-        let ast = parse("1 - 2").unwrap();
+    #[test]
+    fn test_block_statements() {
+        assert_eq!(run("{ 1 }"), "Const(0) Pop");
+    }
+
+    #[test]
+    fn test_if_expression() {
         assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Subtract as u8,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
+            run("als ja { 1 }"),
+            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop"
         );
-
-        let ast = parse("1 / 2").unwrap();
         assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Divide as u8,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
-        );
-
-        let ast = parse("1 * 2").unwrap();
-        assert_eq!(
-            compile(&ast).bytecode,
-            [
-                OpCode::Const as u8,
-                0,
-                0,
-                OpCode::Const as u8,
-                1,
-                0,
-                OpCode::Multiply as u8,
-                OpCode::Pop as u8,
-                OpCode::Halt as u8
-            ]
+            run("als ja { 1 } anders { 2 }"),
+            "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop"
         );
     }
 }

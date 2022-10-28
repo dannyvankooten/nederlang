@@ -9,24 +9,29 @@ mod object;
 mod parser;
 mod vm;
 
-use eval::{eval_program, Environment};
+use eval::eval_program;
 use std::{
     fs,
     io::{self, Write},
     path::Path,
 };
+use vm::run_str;
+
+macro_rules! byte {
+    ($value:expr, $position:literal) => {
+        (($value >> (8 * $position)) & 0xff) as u8
+    };
+}
 
 fn repl() {
     let mut buffer = String::with_capacity(512);
-    let mut env = Environment::new();
-
     loop {
         buffer.clear();
         print!(">>> ");
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut buffer).unwrap();
 
-        match eval_program(&buffer, Some(&mut env)) {
+        match run_str(&buffer) {
             Ok(obj) => println!("{}", obj),
             Err(e) => println!("{:?}", e),
         }
