@@ -1,4 +1,5 @@
-use crate::{eval::Error, object::NlObject};
+use crate::object::Error;
+use crate::object::NlObject;
 
 pub(crate) fn len(arg: NlObject) -> Result<NlObject, Error> {
     let result = match arg {

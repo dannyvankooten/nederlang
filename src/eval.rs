@@ -7,14 +7,6 @@ use crate::{builtins, object::*};
 use hashbrown::HashMap;
 use parser::ParseError;
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum Error {
-    TypeError(String),
-    SyntaxError(ParseError),
-    ReferenceError(String),
-    IndexError(String),
-}
-
 #[derive(Debug)]
 pub struct Environment {
     scopes: Vec<HashMap<String, NlObject>>,

@@ -70,34 +70,6 @@ impl From<u8> for OpCode {
     }
 }
 
-impl Display for OpCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            OpCode::Const => f.write_str("Const"),
-            OpCode::Pop => f.write_str("Pop"),
-            OpCode::True => f.write_str("True"),
-            OpCode::False => f.write_str("False"),
-            OpCode::Add => f.write_str("Add"),
-            OpCode::Subtract => f.write_str("Subtract"),
-            OpCode::Divide => f.write_str("Divide"),
-            OpCode::Multiply => f.write_str("Multiply"),
-            OpCode::Gt => f.write_str("Gt"),
-            OpCode::Gte => f.write_str("Gte"),
-            OpCode::Lt => f.write_str("Lt"),
-            OpCode::Lte => f.write_str("Lte"),
-            OpCode::Eq => f.write_str("Eq"),
-            OpCode::Neq => f.write_str("Neq"),
-            OpCode::Jump => f.write_str("Jump"),
-            OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
-            OpCode::Null => f.write_str("Null"),
-            OpCode::Return => f.write_str("Return"),
-            OpCode::ReturnValue => f.write_str("ReturnValue"),
-            OpCode::Call => f.write_str("Call"),
-            OpCode::Halt => f.write_str("Halt"),
-        }
-    }
-}
-
 pub(crate) struct CompilerScope {
     symbols: Vec<String>,
     pub(crate) bytecode: Vec<u8>,
@@ -106,7 +78,6 @@ pub(crate) struct CompilerScope {
 pub(crate) struct CompiledProgram {
     pub(crate) constants: Vec<NlObject>,
     pub(crate) scopes: Vec<CompilerScope>,
-    current_scope: usize,
 }
 
 impl CompiledProgram {
@@ -117,7 +88,6 @@ impl CompiledProgram {
                 symbols: Vec::new(),
                 bytecode: Vec::with_capacity(256),
             }],
-            current_scope: 0,
         }
     }
 
@@ -127,23 +97,24 @@ impl CompiledProgram {
     }
 
     fn add_instruction(&mut self, operand: OpCode, value: usize) -> usize {
-        let pos = self.current_scope().bytecode.len();
+        let bytecode = &mut self.current_scope_mut().bytecode;
+        let pos = bytecode.len();
 
         match operand {
             // Opcodes with 2 operands (2^16 max value)
             OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
-                self.current_scope_mut().bytecode.push(operand as u8);
-                self.current_scope_mut().bytecode.push(byte!(value, 0));
-                self.current_scope_mut().bytecode.push(byte!(value, 1));
+                bytecode.push(operand as u8);
+                bytecode.push(byte!(value, 0));
+                bytecode.push(byte!(value, 1));
             }
             // OpCodes with 1 operand:
             OpCode::Call => {
-                self.current_scope_mut().bytecode.push(operand as u8);
-                self.current_scope_mut().bytecode.push(byte!(value, 0));
+                bytecode.push(operand as u8);
+                bytecode.push(byte!(value, 0));
             }
 
             // OpCodes with 0 operands:
-            _ => self.current_scope_mut().bytecode.push(operand as u8),
+            _ => bytecode.push(operand as u8),
         }
 
         pos
@@ -162,16 +133,15 @@ impl CompiledProgram {
             symbols: Vec::new(),
             bytecode: Vec::with_capacity(256),
         });
-        self.current_scope += 1;
     }
 
     fn leave_scope(&mut self) -> CompilerScope {
-        self.current_scope -= 1;
+        debug_assert!(self.scopes.len() > 0);
         self.scopes.pop().unwrap()
     }
 
     fn current_instructions_len(&self) -> usize {
-        return self.scopes[self.current_scope].bytecode.len();
+        return self.current_scope().bytecode.len();
     }
 
     fn last_instruction_is(&self, op: OpCode) -> bool {
@@ -181,12 +151,6 @@ impl CompiledProgram {
     fn replace_last_instruction(&mut self, op: OpCode) {
         let last_instruction = self.current_scope_mut().bytecode.iter_mut().last().unwrap();
         *last_instruction = op as u8;
-    }
-
-    fn replace_last_instruction_if(&mut self, old_op: OpCode, new_op: OpCode) {
-        if self.last_instruction_is(old_op) {
-            self.replace_last_instruction(new_op);
-        }
     }
 
     fn remove_last_instruction(&mut self) {
@@ -200,11 +164,12 @@ impl CompiledProgram {
     }
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
-        assert_eq!(self.current_scope().bytecode[pos], op as u8);
+        let scope = self.current_scope_mut();
+        debug_assert_eq!(scope.bytecode[pos], op as u8);
 
         // TODO: For opcodes with less than 2 operands, we need to account for it here.
-        self.current_scope_mut().bytecode[pos + 1] = byte!(new_value, 0);
-        self.current_scope_mut().bytecode[pos + 2] = byte!(new_value, 1);
+        scope.bytecode[pos + 1] = byte!(new_value, 0);
+        scope.bytecode[pos + 2] = byte!(new_value, 1);
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) {
@@ -221,7 +186,7 @@ impl CompiledProgram {
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts),
             Stmt::Return(expr) => {
-                // TODO: Allow expression to be omitted (in parser first)
+                // TODO: Allow expression to be omitted (needs work in parser first)
                 self.compile_expression(expr);
                 self.add_instruction(OpCode::ReturnValue, 0);
             }
@@ -299,6 +264,8 @@ impl CompiledProgram {
                 );
             }
             Expr::Function(_name, parameters, body) => {
+                // TODO: Maybe make all the compile_ methods members of the Scope{} struct
+                // TODO: So that here we simply create a new scope, call a bunch of methods on it and then destroy it.
                 self.enter_scope();
 
                 for p in parameters {
@@ -347,6 +314,37 @@ mod tests {
     use super::*;
     use crate::parser::parse;
 
+    /// We use a string representation of OpCodes to make testing a little easier
+    impl Display for OpCode {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match &self {
+                OpCode::Const => f.write_str("Const"),
+                OpCode::Pop => f.write_str("Pop"),
+                OpCode::True => f.write_str("True"),
+                OpCode::False => f.write_str("False"),
+                OpCode::Add => f.write_str("Add"),
+                OpCode::Subtract => f.write_str("Subtract"),
+                OpCode::Divide => f.write_str("Divide"),
+                OpCode::Multiply => f.write_str("Multiply"),
+                OpCode::Gt => f.write_str("Gt"),
+                OpCode::Gte => f.write_str("Gte"),
+                OpCode::Lt => f.write_str("Lt"),
+                OpCode::Lte => f.write_str("Lte"),
+                OpCode::Eq => f.write_str("Eq"),
+                OpCode::Neq => f.write_str("Neq"),
+                OpCode::Jump => f.write_str("Jump"),
+                OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
+                OpCode::Null => f.write_str("Null"),
+                OpCode::Return => f.write_str("Return"),
+                OpCode::ReturnValue => f.write_str("ReturnValue"),
+                OpCode::Call => f.write_str("Call"),
+                OpCode::Halt => f.write_str("Halt"),
+            }
+        }
+    }
+
+    // Converts an array of bytes to a string representation consisting of the OpCode along with their u16 values
+    // For example: [OpCode::Const, 1, 0] -> "Const(1)"
     fn bytecode_to_human(code: &[u8]) -> String {
         let mut ip = 0;
         let mut str = String::with_capacity(256);
@@ -354,6 +352,8 @@ mod tests {
         loop {
             let op = OpCode::from(code[ip]);
             match op {
+                // Halt (end of program, return str)
+                OpCode::Halt => break,
                 // OpCodes with 2 operands:
                 OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
                     str.push_str(&op.to_string());
@@ -371,12 +371,6 @@ mod tests {
                     ip += 2;
                 }
 
-                // Halt (end of program, return str)
-                OpCode::Halt => {
-                    str.truncate(str.trim().len());
-                    return str;
-                }
-
                 // Single opcode (no operands)
                 _ => {
                     str.push_str(&op.to_string());
@@ -385,6 +379,10 @@ mod tests {
             }
             str.push_str(" ");
         }
+
+        // trim trailing whitespace while modifying original string in place
+        str.truncate(str.trim().len());
+        return str;
     }
 
     fn run(program: &str) -> String {
@@ -395,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn test_macro() {
+    fn test_byte_macro() {
         assert_eq!(byte!(0, 0), 0);
         assert_eq!(byte!(0, 1), 0);
 
@@ -421,6 +419,7 @@ mod tests {
     #[test]
     fn test_bool_expression() {
         assert_eq!(run("ja"), "True Pop");
+        assert_eq!(run("ja; ja"), "True Pop True Pop");
         assert_eq!(run("nee"), "False Pop");
     }
 
@@ -468,8 +467,6 @@ mod tests {
 
     #[test]
     fn test_call_expression() {
-        // Const(0) is inside the function
-        // Const(1) is the compiled function
         assert_eq!(
             run("functie(a, b) { 1 }(1, 2)"),
             "Const(1) Const(2) Const(3) Call(2) Pop"

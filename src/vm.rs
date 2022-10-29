@@ -1,4 +1,5 @@
 use crate::compiler::{compile, CompiledProgram, OpCode};
+use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::{parse, ParseError};
 
@@ -31,14 +32,6 @@ impl Frame {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub(crate) enum Error {
-    // TypeError(String),
-    SyntaxError(ParseError),
-    ReferenceError(String),
-    IndexError(String),
-}
-
 pub(crate) fn run_str(program: &str) -> Result<NlObject, Error> {
     let ast = parse(program).map_err(Error::SyntaxError)?;
     let compiled = compile(&ast);
@@ -59,7 +52,7 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
             {
                 let right = stack.pop().unwrap();
                 let left = stack.pop().unwrap();
-                let result = (left $op right).unwrap();
+                let result = (left $op right)?;
                 stack.push(result);
                 frame.ip += 1;
             }
@@ -69,7 +62,7 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
         ($op:tt) => {{
             let right = stack.pop().unwrap();
             let left = stack.pop().unwrap();
-            let result = left.$op(&right).unwrap();
+            let result = left.$op(&right)?;
             stack.push(result);
             frame.ip += 1;
         }};

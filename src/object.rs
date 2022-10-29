@@ -1,8 +1,16 @@
 use crate::ast::BlockStmt;
-use crate::eval::Error;
+use crate::parser::ParseError;
 use std::fmt::Display;
 use std::ops;
 use std::string::String;
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum Error {
+    TypeError(String),
+    SyntaxError(ParseError),
+    ReferenceError(String),
+    IndexError(String),
+}
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
 pub(crate) enum NlObject {
