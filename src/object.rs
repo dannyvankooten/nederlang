@@ -43,11 +43,11 @@ impl NlFuncObject {
 }
 
 impl NlObject {
-    pub(crate) fn is_truthy(self) -> bool {
+    pub(crate) fn is_truthy(&self) -> bool {
         match self {
-            NlObject::Bool(v) => v,
-            NlObject::Int(v) => v > 0,
-            NlObject::Float(v) => v > 0.0,
+            NlObject::Bool(v) => *v,
+            NlObject::Int(v) => *v > 0,
+            NlObject::Float(v) => *v > 0.0,
             NlObject::String(v) => !v.is_empty(),
             _ => unimplemented!(
                 "Can not use objects of type {:?} as boolean expression.",
@@ -83,10 +83,8 @@ impl Display for NlObject {
     }
 }
 
-impl ops::Add<NlObject> for NlObject {
-    type Output = Result<NlObject, Error>;
-
-    fn add(self, rhs: NlObject) -> Result<NlObject, Error> {
+impl NlObject {
+    pub(crate) fn add(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a + b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a + b),
@@ -110,12 +108,8 @@ impl ops::Add<NlObject> for NlObject {
 
         Ok(r)
     }
-}
 
-impl ops::Sub<NlObject> for NlObject {
-    type Output = Result<NlObject, Error>;
-
-    fn sub(self, rhs: NlObject) -> Result<NlObject, Error> {
+    pub(crate) fn sub(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a - b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a - b),
@@ -130,12 +124,8 @@ impl ops::Sub<NlObject> for NlObject {
         };
         Ok(r)
     }
-}
 
-impl ops::Mul<NlObject> for NlObject {
-    type Output = Result<NlObject, Error>;
-
-    fn mul(self, rhs: NlObject) -> Result<NlObject, Error> {
+    pub(crate) fn mul(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a * b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a * b),
@@ -160,12 +150,8 @@ impl ops::Mul<NlObject> for NlObject {
 
         Ok(r)
     }
-}
 
-impl ops::Div<NlObject> for NlObject {
-    type Output = Result<NlObject, Error>;
-
-    fn div(self, rhs: NlObject) -> Result<NlObject, Error> {
+    pub(crate) fn div(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a / b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a / b),
@@ -181,12 +167,8 @@ impl ops::Div<NlObject> for NlObject {
 
         Ok(r)
     }
-}
 
-impl ops::Rem<NlObject> for NlObject {
-    type Output = Result<NlObject, Error>;
-
-    fn rem(self, rhs: NlObject) -> Result<NlObject, Error> {
+    pub(crate) fn rem(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a % b),
             (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a % b),

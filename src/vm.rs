@@ -38,26 +38,18 @@ pub(crate) fn run_str(program: &str) -> Result<NlObject, Error> {
     run(compiled)
 }
 
+const OBJECT_NULL: NlObject = NlObject::Null;
+const OBJECT_TRUE: NlObject = NlObject::Bool(true);
+const OBJECT_FALSE: NlObject = NlObject::Bool(false);
+
 fn run(program: CompiledProgram) -> Result<NlObject, Error> {
     let constants = program.constants;
-    let bytecode = &program.scopes[0].bytecode;
     let mut stack: Vec<NlObject> = Vec::with_capacity(512);
     let mut frames: Vec<Frame> = Vec::with_capacity(64);
-    frames.push(Frame::new(bytecode, 0));
-    let mut result = NlObject::Null;
+    frames.push(Frame::new(&program.scopes[0].bytecode, 0));
+    let mut result = OBJECT_NULL;
     let mut frame = frames.iter_mut().last().unwrap();
 
-    macro_rules! impl_binary_op {
-        ($op:tt) => {
-            {
-                let right = stack.pop().unwrap();
-                let left = stack.pop().unwrap();
-                let result = (left $op right)?;
-                stack.push(result);
-                frame.ip += 1;
-            }
-        };
-    }
     macro_rules! impl_binary_op_method {
         ($op:tt) => {{
             let right = stack.pop().unwrap();
@@ -68,8 +60,8 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
         }};
     }
 
-    if bytecode.is_empty() {
-        return Ok(result);
+    if frame.code.is_empty() {
+        return Ok(result.clone());
     }
 
     loop {
@@ -85,6 +77,8 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
             println!();
         }
 
+        // TODO: Match as u8, or is compiler smart enough?
+        // TODO: Computed go-to by dropping to ASM?
         let opcode = OpCode::from(frame.code[frame.ip]);
         match opcode {
             OpCode::Const => {
@@ -93,11 +87,11 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
                 frame.ip += 3;
             }
             OpCode::Pop => {
-                result = stack.pop().unwrap_or(NlObject::Null);
+                result = stack.pop().unwrap_or(OBJECT_NULL);
                 frame.ip += 1;
             }
             OpCode::Null => {
-                stack.push(NlObject::Null);
+                stack.push(OBJECT_NULL);
                 frame.ip += 1;
             }
             OpCode::Jump => {
@@ -112,24 +106,24 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
                 }
             }
             OpCode::True => {
-                stack.push(NlObject::Bool(true));
+                stack.push(OBJECT_TRUE);
                 frame.ip += 1;
             }
             OpCode::False => {
-                stack.push(NlObject::Bool(false));
+                stack.push(OBJECT_FALSE);
                 frame.ip += 1;
             }
-            OpCode::Add => impl_binary_op!(+),
-            OpCode::Subtract => impl_binary_op!(-),
-            OpCode::Divide => impl_binary_op!(/),
-            OpCode::Multiply => impl_binary_op!(*),
+            OpCode::Add => impl_binary_op_method!(add),
+            OpCode::Subtract => impl_binary_op_method!(sub),
+            OpCode::Divide => impl_binary_op_method!(div),
+            OpCode::Multiply => impl_binary_op_method!(mul),
             OpCode::Gt => impl_binary_op_method!(gt),
             OpCode::Gte => impl_binary_op_method!(gte),
             OpCode::Lt => impl_binary_op_method!(lt),
             OpCode::Lte => impl_binary_op_method!(lte),
             OpCode::Eq => impl_binary_op_method!(eq),
             OpCode::Neq => impl_binary_op_method!(neq),
-            OpCode::Halt => return Ok(result),
+            OpCode::Halt => return Ok(result.clone()),
             OpCode::ReturnValue => {
                 let result = stack.pop().unwrap();
                 stack.drain(frame.base_pointer..);

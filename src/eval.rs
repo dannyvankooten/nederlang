@@ -5,7 +5,6 @@ use crate::ast::{
 use crate::parser;
 use crate::{builtins, object::*};
 use hashbrown::HashMap;
-use parser::ParseError;
 
 #[derive(Debug)]
 pub struct Environment {
@@ -213,11 +212,11 @@ impl Eval for ExprInfix {
         let right = self.right.eval(env)?;
 
         match self.operator {
-            Operator::Add => left + right,
-            Operator::Subtract => left - right,
-            Operator::Multiply => left * right,
-            Operator::Divide => left / right,
-            Operator::Modulo => left % right,
+            Operator::Add => left.add(&right),
+            Operator::Subtract => left.sub(&right),
+            Operator::Multiply => left.mul(&right),
+            Operator::Divide => left.div(&right),
+            Operator::Modulo => left.rem(&right),
             Operator::Gt => left.gt(&right),
             Operator::Gte => left.gte(&right),
             Operator::Lt => left.lt(&right),
