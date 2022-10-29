@@ -79,17 +79,19 @@ fn run(program: CompiledProgram) -> Result<NlObject, Error> {
         return Ok(result);
     }
 
-    println!("Constants: {:?}", constants);
-
     loop {
-        println!("Stack: {:?}", stack);
-        println!(
-            "Next bytes: {:?} {:?} {:?}",
-            OpCode::from(*frame.code.get(frame.ip).unwrap()),
-            frame.code.get(frame.ip + 1),
-            frame.code.get(frame.ip + 2)
-        );
-        println!();
+        #[cfg(debug_assertions)]
+        {
+            println!("Stack: {:?}", stack);
+            println!(
+                "Next bytes: {:?} {:?} {:?}",
+                OpCode::from(*frame.code.get(frame.ip).unwrap()),
+                frame.code.get(frame.ip + 1),
+                frame.code.get(frame.ip + 2)
+            );
+            println!();
+        }
+
         let opcode = OpCode::from(frame.code[frame.ip]);
         match opcode {
             OpCode::Const => {
