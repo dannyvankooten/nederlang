@@ -220,6 +220,11 @@ impl CompiledProgram {
                 self.add_instruction(OpCode::Pop, 0);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts),
+            Stmt::Return(expr) => {
+                // TODO: Allow expression to be omitted (in parser first)
+                self.compile_expression(expr);
+                self.add_instruction(OpCode::ReturnValue, 0);
+            }
             _ => unimplemented!("Can not yet compile statements of type {:?}", stmt),
         }
     }
@@ -302,8 +307,6 @@ impl CompiledProgram {
 
                 self.compile_block_statement(body);
 
-                // TODO: If last instruction is OpCode::Pop, replace it with OpCode::ReturnValue
-                // TODO: Else, if last instruction is not OpCode::ReturnValue, add OpCode::Return (for speed)?
                 if self.last_instruction_is(OpCode::Pop) {
                     self.replace_last_instruction(OpCode::ReturnValue);
                 } else if !self.last_instruction_is(OpCode::ReturnValue) {
