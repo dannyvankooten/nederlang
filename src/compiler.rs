@@ -256,10 +256,7 @@ impl CompilerScope {
                     scope.add_instruction(OpCode::Return, 0);
                 }
 
-                // Add constants from this scope to global constants list
-                // OpCode::Const emitted in this scope should already have the proper offset for their operands
                 self.constants.extend(scope.constants);
-
                 let id = self.add_constant(NlObject::CompiledFunction(Box::new((
                     scope.instructions,
                     scope.symbols.len() as u8,

@@ -90,7 +90,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 3;
             }
             OpCode::Pop => {
-                result = stack.pop().unwrap_or(OBJECT_NULL);
+                result = stack.pop().unwrap();
                 frame.ip += 1;
             }
             OpCode::Null => {
@@ -216,6 +216,12 @@ mod tests {
         assert_eq!(
             run_str("functie() { functie() { 1 }() }() + functie() { 2 }()"),
             Ok(NlObject::Int(3))
+        );
+        assert_eq!(
+            run_str(
+                "1 + functie() { 1 + functie() { 1 }() }() + functie() { functie() { 1 }() + 1 }()"
+            ),
+            Ok(NlObject::Int(5))
         );
     }
 

@@ -354,7 +354,7 @@ impl<'a> Parser<'a> {
     /// Parse a block (surrounded by curly braces)
     /// Can be an unnamed block, function body, if consequence, etc.
     fn parse_block_statement(&mut self) -> Result<BlockStmt, ParseError> {
-        let mut block = BlockStmt::with_capacity(64);
+        let mut block = BlockStmt::with_capacity(8);
         self.skip(Token::OpenBrace)?;
 
         while self.current_token != Token::Illegal && self.current_token != Token::CloseBrace {
