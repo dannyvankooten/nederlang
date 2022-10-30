@@ -9,19 +9,16 @@ mod object;
 mod parser;
 mod vm;
 
+use std::fs;
+use std::io::{self, Write};
+use std::mem::{size_of, size_of_val};
+use std::path::Path;
+use std::rc::Rc;
+
 use eval::eval_program;
-use std::{
-    fs,
-    io::{self, Write},
-    path::Path,
-};
 use vm::run_str;
 
-macro_rules! byte {
-    ($value:expr, $position:literal) => {
-        (($value >> (8 * $position)) & 0xff) as u8
-    };
-}
+use crate::object::NlObject;
 
 fn repl() {
     let mut buffer = String::with_capacity(512);
@@ -33,7 +30,7 @@ fn repl() {
 
         match run_str(&buffer) {
             Ok(obj) => println!("{}", obj),
-            Err(e) => println!("{:?}", e),
+            Err(e) => eprintln!("{:?}", e),
         }
     }
 }
@@ -42,11 +39,16 @@ fn file(f: &Path) {
     let program = fs::read_to_string(f).unwrap();
     match eval_program(&program, None) {
         Ok(obj) => println!("{}", obj),
-        Err(e) => println!("{:?}", e),
+        Err(e) => eprintln!("{:?}", e),
     }
 }
 
 fn main() -> io::Result<()> {
+    assert!(
+        size_of::<NlObject>() <= 16,
+        "NlObject is larger than 16 bytes. Don't cut corners Danny boy."
+    );
+
     let args = std::env::args();
 
     if args.len() <= 1 {

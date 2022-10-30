@@ -18,7 +18,7 @@ pub(crate) enum NlObject {
     Int(i64),
     Float(f64),
     Bool(bool),
-    CompiledFunction(Vec<u8>, u8),
+    CompiledFunction(Box<(Vec<u8>, u8)>),
     String(Box<String>),
     Func(Box<NlFuncObject>),
     Array(Box<Vec<NlObject>>),

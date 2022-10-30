@@ -17,16 +17,16 @@ macro_rules! read_uint16 {
 // }
 
 struct Frame {
-    code: Vec<u8>,
+    instructions: Vec<u8>,
     ip: usize,
     base_pointer: usize,
 }
 
 impl Frame {
-    fn new(bytecode: &Vec<u8>, base_pointer: usize) -> Self {
+    fn new(instructions: &Vec<u8>, base_pointer: usize) -> Self {
         Frame {
             ip: 0,
-            code: bytecode.clone(),
+            instructions: instructions.clone(),
             base_pointer,
         }
     }
@@ -60,7 +60,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
         }};
     }
 
-    if frame.code.is_empty() {
+    if frame.instructions.is_empty() {
         return Ok(result.clone());
     }
 
@@ -70,19 +70,22 @@ fn run(program: Program) -> Result<NlObject, Error> {
             println!("Stack: {:?}", stack);
             println!(
                 "Next bytes: {:?} {:?} {:?}",
-                OpCode::from(*frame.code.get(frame.ip).unwrap()),
-                frame.code.get(frame.ip + 1),
-                frame.code.get(frame.ip + 2)
+                OpCode::from(*frame.instructions.get(frame.ip).unwrap()),
+                frame.instructions.get(frame.ip + 1),
+                frame.instructions.get(frame.ip + 2)
             );
             println!();
         }
 
         // TODO: Match as u8, or is compiler smart enough?
         // TODO: Computed go-to by dropping to ASM?
-        let opcode = OpCode::from(frame.code[frame.ip]);
+        let opcode = OpCode::from(frame.instructions[frame.ip]);
         match opcode {
             OpCode::Const => {
-                let idx = read_uint16!(frame.code[frame.ip + 1], frame.code[frame.ip + 2]);
+                let idx = read_uint16!(
+                    frame.instructions[frame.ip + 1],
+                    frame.instructions[frame.ip + 2]
+                );
                 stack.push(constants[idx].clone());
                 frame.ip += 3;
             }
@@ -95,12 +98,18 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Jump => {
-                frame.ip = read_uint16!(frame.code[frame.ip + 1], frame.code[frame.ip + 2])
+                frame.ip = read_uint16!(
+                    frame.instructions[frame.ip + 1],
+                    frame.instructions[frame.ip + 2]
+                )
             }
             OpCode::JumpIfFalse => {
                 let condition = stack.pop().unwrap();
                 if !condition.is_truthy() {
-                    frame.ip = read_uint16!(frame.code[frame.ip + 1], frame.code[frame.ip + 2])
+                    frame.ip = read_uint16!(
+                        frame.instructions[frame.ip + 1],
+                        frame.instructions[frame.ip + 2]
+                    )
                 } else {
                     frame.ip += 3;
                 }
@@ -139,10 +148,10 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Call => {
-                let num_args = frame.code[frame.ip + 1];
+                let num_args = frame.instructions[frame.ip + 1];
                 let fn_obj = &stack[stack.len() - 1 - num_args as usize];
                 let bytecode = match fn_obj {
-                    NlObject::CompiledFunction(code, _num_locals) => code,
+                    NlObject::CompiledFunction(fn_obj) => &fn_obj.0,
                     _ => unimplemented!(),
                 };
                 frame.ip += 1;

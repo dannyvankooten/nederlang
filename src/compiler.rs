@@ -260,10 +260,10 @@ impl CompilerScope {
                 // OpCode::Const emitted in this scope should already have the proper offset for their operands
                 self.constants.extend(scope.constants);
 
-                let id = self.add_constant(NlObject::CompiledFunction(
+                let id = self.add_constant(NlObject::CompiledFunction(Box::new((
                     scope.instructions,
                     scope.symbols.len() as u8,
-                ));
+                ))));
                 self.add_instruction(OpCode::Const, id);
             }
             Expr::Call(expr) => {
