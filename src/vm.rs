@@ -23,10 +23,10 @@ struct Frame {
 }
 
 impl Frame {
-    fn new(instructions: &Vec<u8>, base_pointer: usize) -> Self {
+    fn new(instructions: Vec<u8>, base_pointer: usize) -> Self {
         Frame {
             ip: 0,
-            instructions: instructions.clone(),
+            instructions,
             base_pointer,
         }
     }
@@ -46,7 +46,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
     let mut stack: Vec<NlObject> = Vec::with_capacity(512);
     let mut frames: Vec<Frame> = Vec::with_capacity(64);
-    frames.push(Frame::new(&program.instructions, 0));
+    frames.push(Frame::new(program.instructions, 0));
     let mut result = OBJECT_NULL;
     let mut frame = frames.iter_mut().last().unwrap();
 
@@ -148,14 +148,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Call => {
-                let num_args = frame.instructions[frame.ip + 1];
-                let fn_obj = &stack[stack.len() - 1 - num_args as usize];
-                let bytecode = match fn_obj {
-                    NlObject::CompiledFunction(fn_obj) => &fn_obj.0,
+                let num_args = frame.instructions[frame.ip + 1] as usize;
+                let base_pointer = stack.len() - 1 - num_args;
+                let instructions = match stack.pop().unwrap() {
+                    NlObject::CompiledFunction(fn_obj) => fn_obj.0,
                     _ => unimplemented!(),
                 };
                 frame.ip += 1;
-                frames.push(Frame::new(bytecode, stack.len() - 1 - num_args as usize));
+                frames.push(Frame::new(instructions, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
             _ => unimplemented!("Missing implementation for opcode {:?}", opcode),

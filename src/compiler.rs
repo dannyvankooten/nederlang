@@ -264,11 +264,10 @@ impl CompilerScope {
                 self.add_instruction(OpCode::Const, id);
             }
             Expr::Call(expr) => {
-                self.compile_expression(&expr.left);
-
                 for a in &expr.arguments {
                     self.compile_expression(a);
                 }
+                self.compile_expression(&expr.left);
 
                 self.add_instruction(OpCode::Call, expr.arguments.len());
             }
@@ -458,9 +457,13 @@ mod tests {
 
     #[test]
     fn test_call_expression() {
+        // Const(0) = 1
+        // Const(1) == 2
+        // Const(2) = functie(a, b) { ... }
+        // Call(2) = call last object on stack with 2 args
         assert_eq!(
             run("functie(a, b) { 1 }(1, 2)"),
-            "Const(1) Const(2) Const(3) Call(2) Pop"
+            "Const(0) Const(1) Const(3) Call(2) Pop"
         );
     }
 }
