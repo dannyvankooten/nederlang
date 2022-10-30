@@ -72,32 +72,25 @@ impl From<u8> for OpCode {
 
 pub(crate) struct CompilerScope {
     symbols: Vec<String>,
-    pub(crate) bytecode: Vec<u8>,
+    instructions: Vec<u8>,
+    constants: Vec<NlObject>,
+    constant_offset: usize,
 }
 
-pub(crate) struct CompiledProgram {
-    pub(crate) constants: Vec<NlObject>,
-    pub(crate) scopes: Vec<CompilerScope>,
-}
-
-impl CompiledProgram {
-    fn new() -> Self {
-        CompiledProgram {
-            constants: Vec::new(),
-            scopes: vec![CompilerScope {
-                symbols: Vec::new(),
-                bytecode: Vec::with_capacity(256),
-            }],
+impl CompilerScope {
+    /// Creates a new compiler scope to compile in
+    /// constant_offset: the offset to apply to OPCODE_CONST instructions.
+    fn new(constant_offset: usize) -> Self {
+        CompilerScope {
+            symbols: Vec::with_capacity(64),
+            instructions: Vec::with_capacity(256),
+            constants: Vec::with_capacity(64),
+            constant_offset,
         }
     }
 
-    fn add_constant(&mut self, obj: NlObject) -> usize {
-        self.constants.push(obj);
-        self.constants.len() - 1
-    }
-
     fn add_instruction(&mut self, operand: OpCode, value: usize) -> usize {
-        let bytecode = &mut self.current_scope_mut().bytecode;
+        let bytecode = &mut self.instructions;
         let pos = bytecode.len();
 
         match operand {
@@ -120,43 +113,28 @@ impl CompiledProgram {
         pos
     }
 
-    pub(crate) fn current_scope_mut(&mut self) -> &mut CompilerScope {
-        self.scopes.iter_mut().last().unwrap()
-    }
-
-    pub(crate) fn current_scope(&self) -> &CompilerScope {
-        self.scopes.iter().last().unwrap()
-    }
-
-    fn enter_scope(&mut self) {
-        self.scopes.push(CompilerScope {
-            symbols: Vec::new(),
-            bytecode: Vec::with_capacity(256),
-        });
-    }
-
-    fn leave_scope(&mut self) -> CompilerScope {
-        debug_assert!(self.scopes.len() > 0);
-        self.scopes.pop().unwrap()
-    }
-
+    #[inline]
     fn current_instructions_len(&self) -> usize {
-        return self.current_scope().bytecode.len();
+        return self.instructions.len();
     }
 
+    #[inline]
     fn last_instruction_is(&self, op: OpCode) -> bool {
-        self.current_scope().bytecode.iter().last() == Some(&(op as u8))
+        self.instructions.iter().last() == Some(&(op as u8))
     }
 
+    #[inline]
     fn replace_last_instruction(&mut self, op: OpCode) {
-        let last_instruction = self.current_scope_mut().bytecode.iter_mut().last().unwrap();
+        let last_instruction = self.instructions.iter_mut().last().unwrap();
         *last_instruction = op as u8;
     }
 
+    #[inline]
     fn remove_last_instruction(&mut self) {
-        self.current_scope_mut().bytecode.pop();
+        self.instructions.pop();
     }
 
+    #[inline]
     fn remove_last_instruction_if(&mut self, op: OpCode) {
         if self.last_instruction_is(op) {
             self.remove_last_instruction();
@@ -164,12 +142,11 @@ impl CompiledProgram {
     }
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
-        let scope = self.current_scope_mut();
-        debug_assert_eq!(scope.bytecode[pos], op as u8);
+        debug_assert_eq!(self.instructions[pos], op as u8);
 
         // TODO: For opcodes with less than 2 operands, we need to account for it here.
-        scope.bytecode[pos + 1] = byte!(new_value, 0);
-        scope.bytecode[pos + 2] = byte!(new_value, 1);
+        self.instructions[pos + 1] = byte!(new_value, 0);
+        self.instructions[pos + 2] = byte!(new_value, 1);
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) {
@@ -264,26 +241,28 @@ impl CompiledProgram {
                 );
             }
             Expr::Function(_name, parameters, body) => {
-                // TODO: Maybe make all the compile_ methods members of the Scope{} struct
-                // TODO: So that here we simply create a new scope, call a bunch of methods on it and then destroy it.
-                self.enter_scope();
+                // Compile function in a new scope
+                let mut scope = CompilerScope::new(self.constants.len() + self.constant_offset);
 
                 for p in parameters {
-                    self.current_scope_mut().symbols.push(p.clone());
+                    scope.symbols.push(p.clone());
                 }
 
-                self.compile_block_statement(body);
+                scope.compile_block_statement(body);
 
-                if self.last_instruction_is(OpCode::Pop) {
-                    self.replace_last_instruction(OpCode::ReturnValue);
-                } else if !self.last_instruction_is(OpCode::ReturnValue) {
-                    self.add_instruction(OpCode::Return, 0);
+                if scope.last_instruction_is(OpCode::Pop) {
+                    scope.replace_last_instruction(OpCode::ReturnValue);
+                } else if !scope.last_instruction_is(OpCode::ReturnValue) {
+                    scope.add_instruction(OpCode::Return, 0);
                 }
 
-                let compiled_function = self.leave_scope();
+                // Add constants from this scope to global constants list
+                // OpCode::Const emitted in this scope should already have the proper offset for their operands
+                self.constants.extend(scope.constants);
+
                 let id = self.add_constant(NlObject::CompiledFunction(
-                    compiled_function.bytecode,
-                    compiled_function.symbols.len() as u8,
+                    scope.instructions,
+                    scope.symbols.len() as u8,
                 ));
                 self.add_instruction(OpCode::Const, id);
             }
@@ -300,13 +279,29 @@ impl CompiledProgram {
             _ => unimplemented!("Can not yet compile expressions of type {:?}", expr),
         }
     }
+
+    fn add_constant(&mut self, obj: NlObject) -> usize {
+        self.constants.push(obj);
+        self.constants.len() - 1 + self.constant_offset
+    }
 }
 
-pub(crate) fn compile(program: &BlockStmt) -> CompiledProgram {
-    let mut cp = CompiledProgram::new();
-    cp.compile_block_statement(program);
-    cp.add_instruction(OpCode::Halt, 0);
-    cp
+pub(crate) struct Program {
+    pub(crate) constants: Vec<NlObject>,
+    pub(crate) instructions: Vec<u8>,
+}
+
+impl Program {
+    pub(crate) fn new(ast: &BlockStmt) -> Self {
+        let mut scope = CompilerScope::new(0);
+        scope.compile_block_statement(ast);
+        scope.add_instruction(OpCode::Halt, 0);
+
+        Self {
+            constants: scope.constants,
+            instructions: scope.instructions,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -387,9 +382,8 @@ mod tests {
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
-        let compiled = compile(&ast);
-        let bytecode = &compiled.current_scope().bytecode;
-        bytecode_to_human(bytecode)
+        let program = Program::new(&ast);
+        bytecode_to_human(&program.instructions)
     }
 
     #[test]

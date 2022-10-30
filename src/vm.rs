@@ -1,7 +1,7 @@
-use crate::compiler::{compile, CompiledProgram, OpCode};
+use crate::compiler::{OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
-use crate::parser::{parse, ParseError};
+use crate::parser::parse;
 
 macro_rules! read_uint16 {
     ($one:expr, $two:expr) => {
@@ -34,19 +34,19 @@ impl Frame {
 
 pub(crate) fn run_str(program: &str) -> Result<NlObject, Error> {
     let ast = parse(program).map_err(Error::SyntaxError)?;
-    let compiled = compile(&ast);
-    run(compiled)
+    let program = Program::new(&ast);
+    run(program)
 }
 
 const OBJECT_NULL: NlObject = NlObject::Null;
 const OBJECT_TRUE: NlObject = NlObject::Bool(true);
 const OBJECT_FALSE: NlObject = NlObject::Bool(false);
 
-fn run(program: CompiledProgram) -> Result<NlObject, Error> {
+fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
     let mut stack: Vec<NlObject> = Vec::with_capacity(512);
     let mut frames: Vec<Frame> = Vec::with_capacity(64);
-    frames.push(Frame::new(&program.scopes[0].bytecode, 0));
+    frames.push(Frame::new(&program.instructions, 0));
     let mut result = OBJECT_NULL;
     let mut frame = frames.iter_mut().last().unwrap();
 
