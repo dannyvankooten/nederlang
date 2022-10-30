@@ -223,8 +223,8 @@ mod tests {
     fn bench_arithmetic(b: &mut Bencher) {
         b.iter(|| {
             assert_eq!(
-                Ok(NlObject::Int(2350)),
-                run_str(" 1 * 5 * 10 * 20 - 100 / 2 + 1400"),
+                Ok(NlObject::Int(1337)),
+                run_str(include_str!("../examples/benchmark_1.nl")),
             );
         });
     }

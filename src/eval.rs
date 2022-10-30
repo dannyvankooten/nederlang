@@ -894,8 +894,8 @@ mod tests {
     fn bench_arithmetic(b: &mut Bencher) {
         b.iter(|| {
             assert_eq!(
-                Ok(NlObject::Int(2350)),
-                eval_program(" 1 * 5 * 10 * 20 - 100 / 2 + 1400", None),
+                Ok(NlObject::Int(1337)),
+                eval_program(include_str!("../examples/benchmark_1.nl"), None),
             );
         });
     }
