@@ -11,7 +11,7 @@ mod vm;
 
 use std::fs;
 use std::io::{self, Write};
-use std::mem::{size_of, size_of_val};
+use std::mem::size_of;
 use std::path::Path;
 
 use eval::eval_program;

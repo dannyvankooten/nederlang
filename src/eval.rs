@@ -907,14 +907,15 @@ mod tests {
                 Ok(NlObject::Int(17711)),
                 eval_program(
                     "
-                functie fib(n) {
-                    als n < 2 {
-                        antwoord n
-                    } 
-                    fib(n - 1) + fib(n - 2)
-                }
-                
-                fib(22)
+                    stel fib = functie(n) {
+                        als n < 2 {
+                            antwoord n
+                        } 
+                        
+                        fib(n - 1) + fib(n - 2)
+                    }
+                    
+                    fib(22)
                 ",
                     None
                 ),

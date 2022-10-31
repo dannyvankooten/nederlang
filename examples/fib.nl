@@ -1,4 +1,4 @@
-functie fib(n) {
+stel fib = functie(n) {
     als n < 2 {
         antwoord n
     } 

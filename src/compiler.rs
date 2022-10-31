@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::fmt::Display;
+use std::rc::Rc;
 
 use crate::ast::*;
 use crate::object::NlObject;
@@ -32,6 +34,10 @@ pub(crate) enum OpCode {
     Return,
     ReturnValue,
     Call,
+    GetLocal,
+    SetLocal,
+    GetGlobal,
+    SetGlobal,
     Halt,
 }
 
@@ -39,7 +45,7 @@ const IP_PLACEHOLDER: usize = 99999;
 
 /// Lookup table for quickly converting from u8 to OpCode variant
 /// The order here is significant!
-static U8_TO_OPCODE_MAP: [OpCode; 21] = [
+static U8_TO_OPCODE_MAP: [OpCode; 25] = [
     OpCode::Const,
     OpCode::Pop,
     OpCode::True,
@@ -60,30 +66,90 @@ static U8_TO_OPCODE_MAP: [OpCode; 21] = [
     OpCode::Return,
     OpCode::ReturnValue,
     OpCode::Call,
+    OpCode::GetLocal,
+    OpCode::SetLocal,
+    OpCode::GetGlobal,
+    OpCode::SetGlobal,
     OpCode::Halt,
 ];
 
 impl From<u8> for OpCode {
-    #[inline]
+    #[inline(always)]
     fn from(value: u8) -> Self {
         unsafe { return *U8_TO_OPCODE_MAP.get_unchecked(value as usize) }
     }
 }
 
-pub(crate) struct CompilerScope {
-    symbols: Vec<String>,
+pub(crate) struct CompilerScope<'a> {
+    symbol_table: &'a mut SymbolTable,
     instructions: Vec<u8>,
     constants: Vec<NlObject>,
+
+    /// constant_offset: the offset to apply to OpCode::Const instructions.
     constant_offset: usize,
 }
 
-impl CompilerScope {
+struct SymbolTable {
+    scopes: Vec<Vec<String>>,
+}
+struct Symbol {
+    scope: Scope,
+    index: usize,
+}
+impl SymbolTable {
+    fn new() -> Self {
+        SymbolTable {
+            scopes: vec![vec![]],
+        }
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(Vec::new());
+    }
+
+    fn leave_scope(&mut self) -> usize {
+        let symbols = self.scopes.pop().unwrap();
+        symbols.len()
+    }
+
+    fn define(&mut self, name: &str) -> Symbol {
+        let scope = if self.scopes.len() > 1 {
+            Scope::Local
+        } else {
+            Scope::Global
+        };
+        let symbols = self.scopes.iter_mut().last().unwrap();
+        symbols.push(name.to_string());
+        Symbol {
+            scope: scope,
+            index: symbols.len() - 1,
+        }
+    }
+
+    fn resolve(&self, name: &str) -> Option<Symbol> {
+        for (i, scope) in self.scopes.iter().rev().enumerate() {
+            if let Some(index) = scope.iter().position(|n| n == name) {
+                return Some(Symbol {
+                    scope: if i < (self.scopes.len() - 1) {
+                        Scope::Local
+                    } else {
+                        Scope::Global
+                    },
+                    index,
+                });
+            }
+        }
+
+        None
+    }
+}
+
+impl<'a> CompilerScope<'a> {
     /// Creates a new compiler scope to compile in
-    /// constant_offset: the offset to apply to OPCODE_CONST instructions.
-    fn new(constant_offset: usize) -> Self {
+    fn new(constant_offset: usize, symbol_table: &'a mut SymbolTable) -> Self {
         CompilerScope {
-            symbols: Vec::with_capacity(64),
-            instructions: Vec::with_capacity(256),
+            symbol_table,
+            instructions: Vec::with_capacity(64),
             constants: Vec::with_capacity(64),
             constant_offset,
         }
@@ -95,7 +161,13 @@ impl CompilerScope {
 
         match operand {
             // Opcodes with 2 operands (2^16 max value)
-            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+            OpCode::Const
+            | OpCode::Jump
+            | OpCode::JumpIfFalse
+            | OpCode::SetGlobal
+            | OpCode::SetLocal
+            | OpCode::GetGlobal
+            | OpCode::GetLocal => {
                 bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
                 bytecode.push(byte!(value, 1));
@@ -162,6 +234,17 @@ impl CompilerScope {
                 self.add_instruction(OpCode::Pop, 0);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts),
+            Stmt::Let(name, value) => {
+                let symbol = self.symbol_table.define(name);
+                self.compile_expression(value);
+
+                // TODO: Emit SetLocal if this is a local scope?
+                if symbol.scope == Scope::Global {
+                    self.add_instruction(OpCode::SetGlobal, symbol.index);
+                } else {
+                    self.add_instruction(OpCode::SetLocal, symbol.index);
+                }
+            }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
                 self.compile_expression(expr);
@@ -205,6 +288,19 @@ impl CompilerScope {
                 let idx = self.add_constant(NlObject::Int(expr.value));
                 self.add_instruction(OpCode::Const, idx);
             }
+            Expr::Identifier(name) => {
+                let symbol = self.symbol_table.resolve(name);
+                match symbol {
+                    Some(symbol) => {
+                        if symbol.scope == Scope::Global {
+                            self.add_instruction(OpCode::GetGlobal, symbol.index);
+                        } else {
+                            self.add_instruction(OpCode::GetLocal, symbol.index);
+                        }
+                    }
+                    None => panic!("Invalid identifier."),
+                }
+            }
             Expr::Infix(expr) => {
                 self.compile_expression(&*expr.left);
                 self.compile_expression(&*expr.right);
@@ -242,10 +338,13 @@ impl CompilerScope {
             }
             Expr::Function(_name, parameters, body) => {
                 // Compile function in a new scope
-                let mut scope = CompilerScope::new(self.constants.len() + self.constant_offset);
-
+                let mut scope = CompilerScope::new(
+                    self.constants.len() + self.constant_offset,
+                    self.symbol_table,
+                );
+                scope.symbol_table.enter_scope();
                 for p in parameters {
-                    scope.symbols.push(p.clone());
+                    scope.symbol_table.define(p);
                 }
 
                 scope.compile_block_statement(body);
@@ -256,10 +355,12 @@ impl CompilerScope {
                     scope.add_instruction(OpCode::Return, 0);
                 }
 
+                let num_locals = scope.symbol_table.leave_scope() as u8;
+                let instructions = scope.instructions;
                 self.constants.extend(scope.constants);
                 let id = self.add_constant(NlObject::CompiledFunction(Box::new((
-                    scope.instructions,
-                    scope.symbols.len() as u8,
+                    instructions,
+                    num_locals,
                 ))));
                 self.add_instruction(OpCode::Const, id);
             }
@@ -287,9 +388,16 @@ pub(crate) struct Program {
     pub(crate) instructions: Vec<u8>,
 }
 
+#[derive(PartialEq)]
+enum Scope {
+    Local,
+    Global,
+}
+
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Self {
-        let mut scope = CompilerScope::new(0);
+        let mut symbol_table = SymbolTable::new();
+        let mut scope = CompilerScope::new(0, &mut symbol_table);
         scope.compile_block_statement(ast);
         scope.add_instruction(OpCode::Halt, 0);
 
@@ -329,6 +437,10 @@ mod tests {
                 OpCode::Return => f.write_str("Return"),
                 OpCode::ReturnValue => f.write_str("ReturnValue"),
                 OpCode::Call => f.write_str("Call"),
+                OpCode::GetLocal => f.write_str("GetLocal"),
+                OpCode::SetLocal => f.write_str("SetLocal"),
+                OpCode::GetGlobal => f.write_str("GetGlobal"),
+                OpCode::SetGlobal => f.write_str("SetGlobal"),
                 OpCode::Halt => f.write_str("Halt"),
             }
         }
@@ -346,7 +458,13 @@ mod tests {
                 // Halt (end of program, return str)
                 OpCode::Halt => break,
                 // OpCodes with 2 operands:
-                OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+                OpCode::Const
+                | OpCode::Jump
+                | OpCode::JumpIfFalse
+                | OpCode::GetGlobal
+                | OpCode::SetGlobal
+                | OpCode::SetLocal
+                | OpCode::GetLocal => {
                     str.push_str(&op.to_string());
                     str.push_str(&format!(
                         "({})",
@@ -465,5 +583,32 @@ mod tests {
             run("functie(a, b) { 1 }(1, 2)"),
             "Const(0) Const(1) Const(3) Call(2) Pop"
         );
+    }
+
+    #[test]
+    fn test_declare_statement() {
+        assert_eq!(run("stel a = 1;"), "Const(0) SetGlobal(0)");
+
+        assert_eq!(
+            run("stel a = 1; stel b = 2;"),
+            "Const(0) SetGlobal(0) Const(1) SetGlobal(1)"
+        );
+
+        // TODO: Test scoped variables
+    }
+
+    #[test]
+    fn test_ident_expressions() {
+        assert_eq!(
+            run("stel a = 1; a"),
+            "Const(0) SetGlobal(0) GetGlobal(0) Pop"
+        );
+
+        assert_eq!(
+            run("stel a = 1; stel b = 2; a; b;"),
+            "Const(0) SetGlobal(0) Const(1) SetGlobal(1) GetGlobal(0) Pop GetGlobal(1) Pop"
+        );
+
+        // TODO: Test scoped variables
     }
 }

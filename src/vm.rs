@@ -3,22 +3,30 @@ use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
 
-macro_rules! read_uint16 {
-    ($one:expr, $two:expr) => {
-        ($one as usize) + (($two as usize) << 8)
+macro_rules! read_u8_operand {
+    ($instructions:expr, $ip:expr) => {
+        unsafe { *$instructions.get_unchecked($ip + 1) as usize }
     };
 }
 
-// struct VM {
-//     stack_pointer: usize,
-//     stack: Vec<NlObject>,
-//     constants: Vec<NlObject>,
-//     ip: usize,
-// }
+macro_rules! read_u16_operand {
+    ($instructions:expr, $ip:expr) => {
+        unsafe {
+            (*$instructions.get_unchecked($ip + 1) as usize)
+                + ((*$instructions.get_unchecked($ip + 2) as usize) << 8)
+        }
+    };
+}
 
 struct Frame {
+    /// The compiled bytecode
     instructions: Vec<u8>,
+
+    /// Index of the current instruction
     ip: usize,
+
+    /// Pointer to the index of the stack before function call started
+    /// This is where the VM returns its stack to after the function returns
     base_pointer: usize,
 }
 
@@ -44,7 +52,8 @@ const OBJECT_FALSE: NlObject = NlObject::Bool(false);
 
 fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
-    let mut stack: Vec<NlObject> = Vec::with_capacity(512);
+    let mut stack: Vec<NlObject> = Vec::with_capacity(64);
+    let mut globals: Vec<NlObject> = Vec::with_capacity(64);
     let mut frames: Vec<Frame> = Vec::with_capacity(64);
     frames.push(Frame::new(program.instructions, 0));
     let mut result = OBJECT_NULL;
@@ -66,6 +75,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
 
     loop {
         #[cfg(debug_assertions)]
+        #[cfg(not(test))]
         {
             println!("Stack: {:?}", stack);
             println!(
@@ -82,11 +92,9 @@ fn run(program: Program) -> Result<NlObject, Error> {
         let opcode = OpCode::from(frame.instructions[frame.ip]);
         match opcode {
             OpCode::Const => {
-                let idx = read_uint16!(
-                    frame.instructions[frame.ip + 1],
-                    frame.instructions[frame.ip + 2]
-                );
-                stack.push(constants[idx].clone());
+                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                let obj = unsafe { constants.get_unchecked(idx) };
+                stack.push(obj.clone());
                 frame.ip += 3;
             }
             OpCode::Pop => {
@@ -98,18 +106,12 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Jump => {
-                frame.ip = read_uint16!(
-                    frame.instructions[frame.ip + 1],
-                    frame.instructions[frame.ip + 2]
-                )
+                frame.ip = read_u16_operand!(frame.instructions, frame.ip);
             }
             OpCode::JumpIfFalse => {
                 let condition = stack.pop().unwrap();
                 if !condition.is_truthy() {
-                    frame.ip = read_uint16!(
-                        frame.instructions[frame.ip + 1],
-                        frame.instructions[frame.ip + 2]
-                    )
+                    frame.ip = read_u16_operand!(frame.instructions, frame.ip);
                 } else {
                     frame.ip += 3;
                 }
@@ -136,10 +138,10 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::ReturnValue => {
                 let result = stack.pop().unwrap();
                 stack.truncate(frame.base_pointer);
+                stack.push(result);
                 frames.pop();
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
-                stack.push(result);
             }
             OpCode::Return => {
                 stack.truncate(frame.base_pointer);
@@ -148,7 +150,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Call => {
-                let num_args = frame.instructions[frame.ip + 1] as usize;
+                let num_args = read_u8_operand!(frame.instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
                 let instructions = match stack.pop().unwrap() {
                     NlObject::CompiledFunction(fn_obj) => fn_obj.0,
@@ -157,6 +159,33 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
                 frames.push(Frame::new(instructions, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
+            }
+            OpCode::SetGlobal => {
+                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                if globals.capacity() < idx {
+                    globals.reserve(idx - globals.capacity());
+                }
+                globals.insert(idx, stack.pop().unwrap());
+                frame.ip += 3;
+                // let idx = read_uint16()
+            }
+            OpCode::GetGlobal => {
+                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                stack.push(globals.get(idx).unwrap().clone());
+                frame.ip += 3;
+            }
+            OpCode::SetLocal => {
+                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                let value = stack.pop().unwrap();
+                let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
+                *obj = value;
+                frame.ip += 3;
+            }
+            OpCode::GetLocal => {
+                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                let value = stack.get(frame.base_pointer + idx).unwrap();
+                stack.push(value.clone());
+                frame.ip += 3;
             }
             _ => unimplemented!("Missing implementation for opcode {:?}", opcode),
         }
@@ -225,6 +254,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_variables() {
+        assert_eq!(run_str("stel a = 1; a"), Ok(NlObject::Int(1)));
+        assert_eq!(run_str("stel a = 1; stel b = 2; a"), Ok(NlObject::Int(1)));
+        assert_eq!(run_str("stel a = 1; stel b = 2; b"), Ok(NlObject::Int(2)));
+        assert_eq!(
+            run_str("stel a = 1; stel b = 2; stel c = a; c"),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            run_str("stel a = 1; { stel a = a + 2; } a"),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            run_str("stel a = 1; functie() { stel a = 2; } a"),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            run_str("stel a = 1; functie(a) { antwoord a; }(2)"),
+            Ok(NlObject::Int(2))
+        );
+
+        // TODO: This should resolve by looking at the outer scope
+        assert_eq!(
+            run_str("stel a = 1; functie() { a }()"),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            run_str("stel a = 1; functie(a, b) { a * 2 + b }(a, 1)"),
+            Ok(NlObject::Int(3))
+        );
+
+        // TODO: This should result in a reference error (it panics currently)
+        // assert!(run_str("functie() { stel a = 2; } a").is_err());
+
+        // assert!(run_str("{ stel a = 2; } a").is_err());
+    }
+
     #[bench]
     fn bench_arithmetic(b: &mut Bencher) {
         b.iter(|| {
@@ -236,22 +303,21 @@ mod tests {
     }
 
     #[bench]
-    #[ignore]
     fn bench_fib_recursive_22(b: &mut Bencher) {
         b.iter(|| {
             assert_eq!(
                 Ok(NlObject::Int(17711)),
                 run_str(
                     "
-                functie fib(n) {
-                    als n < 2 {
-                        n
-                    } else {
+                    stel fib = functie(n) {
+                        als n < 2 {
+                            antwoord n
+                        } 
+                        
                         fib(n - 1) + fib(n - 2)
                     }
-                }
-                
-                fib(22)
+                    
+                    fib(22)
                 "
                 ),
             );
