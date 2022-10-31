@@ -135,14 +135,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::Halt => return Ok(result.clone()),
             OpCode::ReturnValue => {
                 let result = stack.pop().unwrap();
-                stack.drain(frame.base_pointer..);
+                stack.truncate(frame.base_pointer);
                 frames.pop();
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
                 stack.push(result);
             }
             OpCode::Return => {
-                stack.drain(frame.base_pointer..);
+                stack.truncate(frame.base_pointer);
                 frames.pop();
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
