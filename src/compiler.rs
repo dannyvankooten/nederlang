@@ -74,7 +74,7 @@ static U8_TO_OPCODE_MAP: [OpCode; 25] = [
 ];
 
 impl From<u8> for OpCode {
-    #[inline(always)]
+    #[inline]
     fn from(value: u8) -> Self {
         unsafe { return *U8_TO_OPCODE_MAP.get_unchecked(value as usize) }
     }

@@ -2,6 +2,7 @@ use crate::compiler::{OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
+use std::ptr;
 
 macro_rules! read_u8_operand {
     ($instructions:expr, $ip:expr) => {
@@ -30,6 +31,64 @@ struct Frame {
     base_pointer: usize,
 }
 
+#[derive(Debug)]
+struct UncheckedVec<T> {
+    items: Vec<T>,
+}
+
+// Unsafe wrapper around Vec that skips all the bound checks...
+// Sorry, not sorry.
+impl<T> UncheckedVec<T> {
+    fn with_capacity(capacity: usize) -> Self {
+        UncheckedVec {
+            items: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    #[inline]
+    fn push(&mut self, value: T) {
+        self.items.push(value)
+    }
+
+    #[inline]
+    fn pop(&mut self) -> T {
+        unsafe {
+            self.items.set_len(self.items.len() - 1);
+            ptr::read(self.items.as_ptr().add(self.items.len()))
+        }
+    }
+
+    #[inline]
+    fn truncate(&mut self, len: usize) {
+        self.items.truncate(len)
+    }
+
+    #[inline]
+    fn insert(&mut self, index: usize, value: T) {
+        self.items.insert(index, value)
+    }
+
+    #[inline]
+    fn get(&self, index: usize) -> &T {
+        unsafe { self.items.get_unchecked(index) }
+    }
+
+    #[inline]
+    fn get_mut(&mut self, index: usize) -> &mut T {
+        unsafe { self.items.get_unchecked_mut(index) }
+    }
+
+    #[inline]
+    fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
+        self.items.iter_mut()
+    }
+}
+
 impl Frame {
     fn new(instructions: Vec<u8>, base_pointer: usize) -> Self {
         Frame {
@@ -52,17 +111,17 @@ const OBJECT_FALSE: NlObject = NlObject::Bool(false);
 
 fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
-    let mut stack: Vec<NlObject> = Vec::with_capacity(64);
-    let mut globals: Vec<NlObject> = Vec::with_capacity(64);
-    let mut frames: Vec<Frame> = Vec::with_capacity(64);
+    let mut stack = UncheckedVec::with_capacity(512);
+    let mut globals = UncheckedVec::with_capacity(512);
+    let mut frames = UncheckedVec::with_capacity(512);
     frames.push(Frame::new(program.instructions, 0));
     let mut result = OBJECT_NULL;
     let mut frame = frames.iter_mut().last().unwrap();
 
     macro_rules! impl_binary_op_method {
         ($op:tt) => {{
-            let right = stack.pop().unwrap();
-            let left = stack.pop().unwrap();
+            let right = stack.pop();
+            let left = stack.pop();
             let result = left.$op(&right)?;
             stack.push(result);
             frame.ip += 1;
@@ -89,7 +148,8 @@ fn run(program: Program) -> Result<NlObject, Error> {
 
         // TODO: Match as u8, or is compiler smart enough?
         // TODO: Computed go-to by dropping to ASM?
-        let opcode = OpCode::from(frame.instructions[frame.ip]);
+        let opcode_u8 = unsafe { *frame.instructions.get_unchecked(frame.ip) };
+        let opcode = OpCode::from(opcode_u8);
         match opcode {
             OpCode::Const => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
@@ -98,7 +158,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 3;
             }
             OpCode::Pop => {
-                result = stack.pop().unwrap();
+                result = stack.pop();
                 frame.ip += 1;
             }
             OpCode::Null => {
@@ -109,7 +169,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip = read_u16_operand!(frame.instructions, frame.ip);
             }
             OpCode::JumpIfFalse => {
-                let condition = stack.pop().unwrap();
+                let condition = stack.pop();
                 if !condition.is_truthy() {
                     frame.ip = read_u16_operand!(frame.instructions, frame.ip);
                 } else {
@@ -136,23 +196,23 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::Neq => impl_binary_op_method!(neq),
             OpCode::Halt => return Ok(result.clone()),
             OpCode::ReturnValue => {
-                let result = stack.pop().unwrap();
+                let result = stack.pop();
                 stack.truncate(frame.base_pointer);
                 stack.push(result);
-                frames.pop();
+                frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
             OpCode::Return => {
                 stack.truncate(frame.base_pointer);
-                frames.pop();
+                frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
             OpCode::Call => {
                 let num_args = read_u8_operand!(frame.instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
-                let instructions = match stack.pop().unwrap() {
+                let instructions = match stack.pop() {
                     NlObject::CompiledFunction(fn_obj) => fn_obj.0,
                     _ => unimplemented!(),
                 };
@@ -162,28 +222,25 @@ fn run(program: Program) -> Result<NlObject, Error> {
             }
             OpCode::SetGlobal => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
-                if globals.capacity() < idx {
-                    globals.reserve(idx - globals.capacity());
-                }
-                globals.insert(idx, stack.pop().unwrap());
+                globals.insert(idx, stack.pop());
                 frame.ip += 3;
-                // let idx = read_uint16()
             }
             OpCode::GetGlobal => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
-                stack.push(globals.get(idx).unwrap().clone());
+                let obj = globals.get(idx);
+                stack.push(obj.clone());
                 frame.ip += 3;
             }
             OpCode::SetLocal => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
-                let value = stack.pop().unwrap();
-                let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
+                let value = stack.pop();
+                let obj = stack.get_mut(frame.base_pointer + idx);
                 *obj = value;
                 frame.ip += 3;
             }
             OpCode::GetLocal => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
-                let value = stack.get(frame.base_pointer + idx).unwrap();
+                let value = stack.get(frame.base_pointer + idx);
                 stack.push(value.clone());
                 frame.ip += 3;
             }
