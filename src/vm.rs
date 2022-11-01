@@ -45,6 +45,8 @@ fn pop(slice: &mut Vec<NlObject>) -> NlObject {
 }
 
 impl Frame {
+
+    #[inline]
     fn new(instructions: Vec<u8>, base_pointer: usize) -> Self {
         Frame {
             ip: 0,
@@ -89,8 +91,8 @@ const OP_HALT: u8 = OpCode::Halt as u8;
 fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
     let mut stack = Vec::with_capacity(64);
-    let mut globals = Vec::with_capacity(64);
-    let mut frames = Vec::with_capacity(64);
+    let mut globals = Vec::with_capacity(8);
+    let mut frames = Vec::with_capacity(32);
     frames.push(Frame::new(program.instructions, 0));
     let mut result = NlObject::Null;
     let mut frame = frames.iter_mut().last().unwrap();
@@ -123,28 +125,26 @@ fn run(program: Program) -> Result<NlObject, Error> {
             println!();
         }
 
-        // TODO: Match as u8, or is compiler smart enough?
-        // TODO: Computed go-to by dropping to ASM?
-        let opcode = unsafe { frame.instructions.get_unchecked(frame.ip) };
+        let opcode = unsafe { *frame.instructions.get_unchecked(frame.ip) };
         match opcode {
-            &OP_CONST => {
+            OP_CONST => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
                 let obj = unsafe { constants.get_unchecked(idx) };
                 stack.push(obj.clone());
                 frame.ip += 3;
             }
-            &OP_POP => {
+            OP_POP => {
                 result = pop(&mut stack);
                 frame.ip += 1;
             }
-            &OP_NULL => {
+            OP_NULL => {
                 stack.push(NlObject::Null);
                 frame.ip += 1;
             }
-            &OP_JUMP => {
+            OP_JUMP => {
                 frame.ip = read_u16_operand!(frame.instructions, frame.ip);
             }
-            &OP_JUMPIFFALSE => {
+            OP_JUMPIFFALSE => {
                 let condition = pop(&mut stack);
                 if condition.is_truthy() {
                     frame.ip += 3;
@@ -152,26 +152,26 @@ fn run(program: Program) -> Result<NlObject, Error> {
                     frame.ip = read_u16_operand!(frame.instructions, frame.ip);
                 }
             }
-            &OP_TRUE => {
+            OP_TRUE => {
                 stack.push(NlObject::Bool(true));
                 frame.ip += 1;
             }
-            &OP_FALSE => {
+            OP_FALSE => {
                 stack.push(NlObject::Bool(false));
                 frame.ip += 1;
             }
-            &OP_ADD => impl_binary_op_method!(add),
-            &OP_SUBTRACT => impl_binary_op_method!(sub),
-            &OP_DIVIDE => impl_binary_op_method!(div),
-            &OP_MULTIPLY => impl_binary_op_method!(mul),
-            &OP_GT => impl_binary_op_method!(gt),
-            &OP_GTE => impl_binary_op_method!(gte),
-            &OP_LT => impl_binary_op_method!(lt),
-            &OP_LTE => impl_binary_op_method!(lte),
-            &OP_EQ => impl_binary_op_method!(eq),
-            &OP_NEQ => impl_binary_op_method!(neq),
-            &OP_HALT => return Ok(result.clone()),
-            &OP_RETURNVALUE => {
+            OP_ADD => impl_binary_op_method!(add),
+            OP_SUBTRACT => impl_binary_op_method!(sub),
+            OP_DIVIDE => impl_binary_op_method!(div),
+            OP_MULTIPLY => impl_binary_op_method!(mul),
+            OP_GT => impl_binary_op_method!(gt),
+            OP_GTE => impl_binary_op_method!(gte),
+            OP_LT => impl_binary_op_method!(lt),
+            OP_LTE => impl_binary_op_method!(lte),
+            OP_EQ => impl_binary_op_method!(eq),
+            OP_NEQ => impl_binary_op_method!(neq),
+            OP_HALT => return Ok(result.clone()),
+            OP_RETURNVALUE => {
                 let result = pop(&mut stack);
                 stack.truncate(frame.base_pointer);
                 stack.push(result);
@@ -179,13 +179,13 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            &OP_RETURN => {
+            OP_RETURN => {
                 stack.truncate(frame.base_pointer);
                 frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            &OP_CALL => {
+            OP_CALL => {
                 let num_args = read_u8_operand!(frame.instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
                 let instructions = match pop(&mut stack) {
@@ -196,33 +196,35 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frames.push(Frame::new(instructions, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
-            &OP_SETGLOBAL => {
+            OP_SETGLOBAL => {
                 let idx = read_u8_operand!(frame.instructions, frame.ip);
                 globals.insert(idx, pop(&mut stack));
                 frame.ip += 2;
             }
-            &OP_GETGLOBAL => {
+            OP_GETGLOBAL => {
                 let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let obj = globals.get(idx).unwrap();
                 stack.push(obj.clone());
                 frame.ip += 2;
             }
-            &OP_SETLOCAL => {
+            OP_SETLOCAL => {
                 let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let value = pop(&mut stack);
                 let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
                 *obj = value;
                 frame.ip += 2;
             }
-            &OP_GETLOCAL => {
+            OP_GETLOCAL => {
                 let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let value = stack.get(frame.base_pointer + idx).unwrap();
                 stack.push(value.clone());
                 frame.ip += 2;
             }
+
+            // This panic! is here to hint the compiler that this path is very unlikely to be taken
             _ => panic!(
                 "Missing implementation for opcode {:?}",
-                OpCode::from(*opcode)
+                OpCode::from(opcode)
             ),
         }
     }
@@ -323,5 +325,21 @@ mod tests {
         // assert!(run_str("functie() { stel a = 2; } a").is_err());
 
         // assert!(run_str("{ stel a = 2; } a").is_err());
+    }
+
+    #[test]
+    fn test_recursion() {  
+        assert_eq!(
+            run_str("stel fib = functie(n) { als n < 2 { antwoord n; } fib(n - 1 ) + fib(n - 2) }; fib(6);"),
+            Ok(NlObject::Int(8))
+        );
+    }
+
+    #[test]
+    fn test_functions_as_argument() {  
+        assert_eq!(
+            run_str("(functie (a) { a() })(functie() { 100 });"),
+            Ok(NlObject::Int(100))
+        );
     }
 }

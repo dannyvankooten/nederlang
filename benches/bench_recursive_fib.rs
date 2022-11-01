@@ -13,10 +13,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         fib(n - 1) + fib(n - 2)
     }
     
-    fib(22)
+    fib(24)
     ";
-    c.bench_function("fib(22) in vm", |b| b.iter(|| run_str(black_box(code))));
+    c.bench_function("fib(24) in vm", |b| b.iter(|| run_str(black_box(code))));
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!{
+    name = benches;
+    config = Criterion::default().sample_size(1000);
+    targets = criterion_benchmark
+}
 criterion_main!(benches);

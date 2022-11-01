@@ -43,6 +43,7 @@ impl NlFuncObject {
 }
 
 impl NlObject {
+    #[inline]
     pub(crate) fn is_truthy(&self) -> bool {
         match self {
             NlObject::Bool(v) => *v,
@@ -84,6 +85,7 @@ impl Display for NlObject {
 }
 
 impl NlObject {
+    #[inline]
     pub(crate) fn add(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a + b),
@@ -109,6 +111,7 @@ impl NlObject {
         Ok(r)
     }
 
+    #[inline]
     pub(crate) fn sub(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a - b),
@@ -125,6 +128,7 @@ impl NlObject {
         Ok(r)
     }
 
+    #[inline]
     pub(crate) fn mul(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a * b),
@@ -151,6 +155,7 @@ impl NlObject {
         Ok(r)
     }
 
+    #[inline]
     pub(crate) fn div(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a / b),
@@ -168,6 +173,7 @@ impl NlObject {
         Ok(r)
     }
 
+    #[inline]
     pub(crate) fn rem(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
             (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a % b),
@@ -188,6 +194,7 @@ impl NlObject {
 impl ops::Not for NlObject {
     type Output = Result<NlObject, Error>;
 
+    #[inline]
     fn not(self) -> Result<NlObject, Error> {
         let r = match self {
             NlObject::Bool(v) => NlObject::Bool(!v),
@@ -206,6 +213,7 @@ impl ops::Not for NlObject {
 impl ops::Neg for NlObject {
     type Output = Result<NlObject, Error>;
 
+    #[inline]
     fn neg(self) -> Result<NlObject, Error> {
         let r = match self {
             NlObject::Int(v) => NlObject::Int(-v),

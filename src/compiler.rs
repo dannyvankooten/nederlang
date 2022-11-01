@@ -94,8 +94,10 @@ struct Symbol {
 }
 impl SymbolTable {
     fn new() -> Self {
+        let mut scopes : Vec<Vec<String>> = Vec::with_capacity(4);
+        scopes.push(Vec::with_capacity(4));
         SymbolTable {
-            scopes: vec![vec![]],
+            scopes
         }
     }
 
@@ -393,6 +395,9 @@ impl Program {
         let mut scope = CompilerScope::new(0, &mut symbol_table);
         scope.compile_block_statement(ast);
         scope.add_instruction(OpCode::Halt, 0);
+
+        // Shrink constants to least possible size 
+        scope.constants.shrink_to(0);
 
         Self {
             constants: scope.constants,
