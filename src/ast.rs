@@ -239,11 +239,3 @@ impl ExprString {
         Expr::String(ExprString { value })
     }
 }
-
-/// Just a helper struct to easily create an Expr::Identifier with owned value
-pub struct ExprIdent;
-impl ExprIdent {
-    pub fn new(v: &str) -> Expr {
-        Expr::Identifier(v.to_owned())
-    }
-}

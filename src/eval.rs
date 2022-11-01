@@ -132,10 +132,6 @@ impl Eval for Expr {
             Expr::While(expr) => eval_while_expression(expr, env),
             Expr::Array(expr) => eval_array_expression(expr, env),
             Expr::Index(expr) => eval_index_expression(expr, env),
-            _ => unimplemented!(
-                "Evaluating expressions of type {:?} is not yet implemented.",
-                self
-            ),
         }
     }
 }

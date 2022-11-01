@@ -4,12 +4,6 @@ on:
   push:
     branches: [ "main" ]
  
-permissions:
-  # deployments permission to deploy GitHub pages website
-  deployments: write
-  # contents permission to update benchmark contents in gh-pages branch
-  contents: write 
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -26,16 +20,4 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Run benchmarks
-      run: cargo +nightly bench | tee output.txt
-    - name: Download previous benchmark data
-      uses: actions/cache@v1
-      with:
-        path: ./cache
-        key: ${{ runner.os }}-benchmark
-    - name: Store benchmark result
-      uses: benchmark-action/github-action-benchmark@v1.14.0
-      with:
-        tool: 'cargo'
-        output-file-path: output.txt
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+      run: cargo +nightly bench

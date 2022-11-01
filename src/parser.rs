@@ -391,6 +391,15 @@ pub fn parse(program: &str) -> Result<BlockStmt, ParseError> {
 mod tests {
     use super::*;
 
+
+    /// Just a helper struct to easily create an Expr::Identifier with owned value
+    pub struct ExprIdent;
+    impl ExprIdent {
+        pub fn new(v: &str) -> Expr {
+            Expr::Identifier(v.to_owned())
+        }
+    }
+
     #[test]
     fn test_bool_expression() {
         assert_eq!(parse("ja").unwrap(), vec![Stmt::Expr(ExprBool::new(true))]);

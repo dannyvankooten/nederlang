@@ -1,7 +1,3 @@
-use std::cell::RefCell;
-use std::fmt::Display;
-use std::rc::Rc;
-
 use crate::ast::*;
 use crate::object::NlObject;
 
@@ -248,7 +244,6 @@ impl<'a> CompilerScope<'a> {
                 self.compile_expression(expr);
                 self.add_instruction(OpCode::ReturnValue, 0);
             }
-            _ => unimplemented!("Can not yet compile statements of type {:?}", stmt),
         }
     }
 
@@ -408,6 +403,8 @@ impl Program {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Display;
+
     use super::*;
     use crate::parser::parse;
 
