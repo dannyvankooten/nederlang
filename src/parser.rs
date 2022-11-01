@@ -391,7 +391,6 @@ pub fn parse(program: &str) -> Result<BlockStmt, ParseError> {
 mod tests {
     use super::*;
 
-
     /// Just a helper struct to easily create an Expr::Identifier with owned value
     pub struct ExprIdent;
     impl ExprIdent {

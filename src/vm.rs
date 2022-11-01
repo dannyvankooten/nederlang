@@ -45,7 +45,6 @@ fn pop(slice: &mut Vec<NlObject>) -> NlObject {
 }
 
 impl Frame {
-
     #[inline]
     fn new(instructions: Vec<u8>, base_pointer: usize) -> Self {
         Frame {
@@ -328,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_recursion() {  
+    fn test_recursion() {
         assert_eq!(
             run_str("stel fib = functie(n) { als n < 2 { antwoord n; } fib(n - 1 ) + fib(n - 2) }; fib(6);"),
             Ok(NlObject::Int(8))
@@ -336,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn test_functions_as_argument() {  
+    fn test_functions_as_argument() {
         assert_eq!(
             run_str("(functie (a) { a() })(functie() { 100 });"),
             Ok(NlObject::Int(100))

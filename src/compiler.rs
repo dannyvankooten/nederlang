@@ -78,11 +78,8 @@ impl From<u8> for OpCode {
 
 pub(crate) struct CompilerScope<'a> {
     symbol_table: &'a mut SymbolTable,
+    constants: &'a mut Vec<NlObject>,
     instructions: Vec<u8>,
-    constants: Vec<NlObject>,
-
-    /// constant_offset: the offset to apply to OpCode::Const instructions.
-    constant_offset: usize,
 }
 
 struct SymbolTable {
@@ -94,11 +91,9 @@ struct Symbol {
 }
 impl SymbolTable {
     fn new() -> Self {
-        let mut scopes : Vec<Vec<String>> = Vec::with_capacity(4);
+        let mut scopes: Vec<Vec<String>> = Vec::with_capacity(4);
         scopes.push(Vec::with_capacity(4));
-        SymbolTable {
-            scopes
-        }
+        SymbolTable { scopes }
     }
 
     fn enter_scope(&mut self) {
@@ -144,12 +139,11 @@ impl SymbolTable {
 
 impl<'a> CompilerScope<'a> {
     /// Creates a new compiler scope to compile in
-    fn new(constant_offset: usize, symbol_table: &'a mut SymbolTable) -> Self {
+    fn new(constants: &'a mut Vec<NlObject>, symbol_table: &'a mut SymbolTable) -> Self {
         CompilerScope {
             symbol_table,
             instructions: Vec::with_capacity(64),
-            constants: Vec::with_capacity(64),
-            constant_offset,
+            constants,
         }
     }
 
@@ -333,10 +327,7 @@ impl<'a> CompilerScope<'a> {
             }
             Expr::Function(_name, parameters, body) => {
                 // Compile function in a new scope
-                let mut scope = CompilerScope::new(
-                    self.constants.len() + self.constant_offset,
-                    self.symbol_table,
-                );
+                let mut scope = CompilerScope::new(self.constants, self.symbol_table);
                 scope.symbol_table.enter_scope();
                 for p in parameters {
                     scope.symbol_table.define(p);
@@ -352,7 +343,7 @@ impl<'a> CompilerScope<'a> {
 
                 let num_locals = scope.symbol_table.leave_scope() as u8;
                 let instructions = scope.instructions;
-                self.constants.extend(scope.constants);
+
                 let id = self.add_constant(NlObject::CompiledFunction(Box::new((
                     instructions,
                     num_locals,
@@ -373,8 +364,13 @@ impl<'a> CompilerScope<'a> {
     }
 
     fn add_constant(&mut self, obj: NlObject) -> usize {
+        // re-use already defined constants
+        if let Some(pos) = self.constants.iter().position(|c| c == &obj) {
+            return pos;
+        }
+
         self.constants.push(obj);
-        self.constants.len() - 1 + self.constant_offset
+        self.constants.len() - 1
     }
 }
 
@@ -392,16 +388,19 @@ enum Scope {
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Self {
         let mut symbol_table = SymbolTable::new();
-        let mut scope = CompilerScope::new(0, &mut symbol_table);
+        let mut constants = Vec::with_capacity(64);
+        let mut scope = CompilerScope::new(&mut constants, &mut symbol_table);
         scope.compile_block_statement(ast);
         scope.add_instruction(OpCode::Halt, 0);
 
-        // Shrink constants to least possible size 
-        scope.constants.shrink_to(0);
+        let instructions = scope.instructions;
+
+        // Shrink constants to least possible size
+        constants.shrink_to(0);
 
         Self {
-            constants: scope.constants,
-            instructions: scope.instructions,
+            constants,
+            instructions,
         }
     }
 }
@@ -519,7 +518,8 @@ mod tests {
     #[test]
     fn test_int_expression() {
         assert_eq!(run("5"), "Const(0) Pop");
-        assert_eq!(run("5; 5"), "Const(0) Pop Const(1) Pop");
+        assert_eq!(run("5; 5"), "Const(0) Pop Const(0) Pop");
+        assert_eq!(run("5; 6; 5"), "Const(0) Pop Const(1) Pop Const(0) Pop");
     }
 
     #[test]
@@ -532,7 +532,11 @@ mod tests {
     #[test]
     fn test_float_expression() {
         assert_eq!(run("1.23"), "Const(0) Pop");
-        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(1) Pop");
+        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(0) Pop");
+        assert_eq!(
+            run("5.00; 6.00; 5.00"),
+            "Const(0) Pop Const(1) Pop Const(0) Pop"
+        );
     }
 
     #[test]
@@ -574,12 +578,12 @@ mod tests {
     #[test]
     fn test_call_expression() {
         // Const(0) = 1
-        // Const(1) == 2
+        // Const(1) = 2
         // Const(2) = functie(a, b) { ... }
         // Call(2) = call last object on stack with 2 args
         assert_eq!(
             run("functie(a, b) { 1 }(1, 2)"),
-            "Const(0) Const(1) Const(3) Call(2) Pop"
+            "Const(0) Const(1) Const(2) Call(2) Pop"
         );
     }
 

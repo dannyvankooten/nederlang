@@ -18,7 +18,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("fib(24) in vm", |b| b.iter(|| run_str(black_box(code))));
 }
 
-criterion_group!{
+criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(1000);
     targets = criterion_benchmark
