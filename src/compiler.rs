@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::ast::*;
 use crate::object::NlObject;
 
@@ -342,7 +344,9 @@ impl<'a> CompilerScope<'a> {
                 }
 
                 let num_locals = scope.symbol_table.leave_scope() as u8;
-                let instructions = scope.instructions;
+                // Shrink instructions to least possible size
+                let mut instructions = scope.instructions;
+                instructions.shrink_to_fit();
 
                 let id = self.add_constant(NlObject::CompiledFunction(Box::new((
                     instructions,
@@ -393,10 +397,12 @@ impl Program {
         scope.compile_block_statement(ast);
         scope.add_instruction(OpCode::Halt, 0);
 
+        // Shrink instructions to least possible size
+        scope.instructions.shrink_to_fit();
         let instructions = scope.instructions;
 
         // Shrink constants to least possible size
-        constants.shrink_to(0);
+        constants.shrink_to_fit();
 
         Self {
             constants,
@@ -405,91 +411,90 @@ impl Program {
     }
 }
 
+/// We use a string representation of OpCodes to make testing a little easier
+impl Display for OpCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            OpCode::Const => f.write_str("Const"),
+            OpCode::Pop => f.write_str("Pop"),
+            OpCode::True => f.write_str("True"),
+            OpCode::False => f.write_str("False"),
+            OpCode::Add => f.write_str("Add"),
+            OpCode::Subtract => f.write_str("Subtract"),
+            OpCode::Divide => f.write_str("Divide"),
+            OpCode::Multiply => f.write_str("Multiply"),
+            OpCode::Gt => f.write_str("Gt"),
+            OpCode::Gte => f.write_str("Gte"),
+            OpCode::Lt => f.write_str("Lt"),
+            OpCode::Lte => f.write_str("Lte"),
+            OpCode::Eq => f.write_str("Eq"),
+            OpCode::Neq => f.write_str("Neq"),
+            OpCode::Jump => f.write_str("Jump"),
+            OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
+            OpCode::Null => f.write_str("Null"),
+            OpCode::Return => f.write_str("Return"),
+            OpCode::ReturnValue => f.write_str("ReturnValue"),
+            OpCode::Call => f.write_str("Call"),
+            OpCode::GetLocal => f.write_str("GetLocal"),
+            OpCode::SetLocal => f.write_str("SetLocal"),
+            OpCode::GetGlobal => f.write_str("GetGlobal"),
+            OpCode::SetGlobal => f.write_str("SetGlobal"),
+            OpCode::Halt => f.write_str("Halt"),
+        }
+    }
+}
+
+// Converts an array of bytes to a string representation consisting of the OpCode along with their u16 values
+// For example: [OpCode::Const, 1, 0] -> "Const(1)"
+#[allow(dead_code)]
+pub fn bytecode_to_human(code: &[u8]) -> String {
+    let mut ip = 0;
+    let mut str = String::with_capacity(256);
+
+    loop {
+        let op = OpCode::from(code[ip]);
+        match op {
+            // Halt (end of program, return str)
+            OpCode::Halt => break,
+            // OpCodes with 2 operands:
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+                str.push_str(&op.to_string());
+                str.push_str(&format!(
+                    "({})",
+                    code[ip + 1] as usize + ((code[ip + 2] as usize) << 8)
+                ));
+                ip += 3;
+            }
+
+            // OpCodes with 1 operand:
+            OpCode::Call
+            | OpCode::SetLocal
+            | OpCode::GetGlobal
+            | OpCode::SetGlobal
+            | OpCode::GetLocal => {
+                str.push_str(&op.to_string());
+                str.push_str(&format!("({})", code[ip + 1]));
+                ip += 2;
+            }
+
+            // Single opcode (no operands)
+            _ => {
+                str.push_str(&op.to_string());
+                ip += 1;
+            }
+        }
+        str.push_str(" ");
+    }
+
+    // trim trailing whitespace while modifying original string in place
+    str.truncate(str.trim().len());
+    return str;
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-
     use super::*;
     use crate::parser::parse;
-
-    /// We use a string representation of OpCodes to make testing a little easier
-    impl Display for OpCode {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match &self {
-                OpCode::Const => f.write_str("Const"),
-                OpCode::Pop => f.write_str("Pop"),
-                OpCode::True => f.write_str("True"),
-                OpCode::False => f.write_str("False"),
-                OpCode::Add => f.write_str("Add"),
-                OpCode::Subtract => f.write_str("Subtract"),
-                OpCode::Divide => f.write_str("Divide"),
-                OpCode::Multiply => f.write_str("Multiply"),
-                OpCode::Gt => f.write_str("Gt"),
-                OpCode::Gte => f.write_str("Gte"),
-                OpCode::Lt => f.write_str("Lt"),
-                OpCode::Lte => f.write_str("Lte"),
-                OpCode::Eq => f.write_str("Eq"),
-                OpCode::Neq => f.write_str("Neq"),
-                OpCode::Jump => f.write_str("Jump"),
-                OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
-                OpCode::Null => f.write_str("Null"),
-                OpCode::Return => f.write_str("Return"),
-                OpCode::ReturnValue => f.write_str("ReturnValue"),
-                OpCode::Call => f.write_str("Call"),
-                OpCode::GetLocal => f.write_str("GetLocal"),
-                OpCode::SetLocal => f.write_str("SetLocal"),
-                OpCode::GetGlobal => f.write_str("GetGlobal"),
-                OpCode::SetGlobal => f.write_str("SetGlobal"),
-                OpCode::Halt => f.write_str("Halt"),
-            }
-        }
-    }
-
-    // Converts an array of bytes to a string representation consisting of the OpCode along with their u16 values
-    // For example: [OpCode::Const, 1, 0] -> "Const(1)"
-    fn bytecode_to_human(code: &[u8]) -> String {
-        let mut ip = 0;
-        let mut str = String::with_capacity(256);
-
-        loop {
-            let op = OpCode::from(code[ip]);
-            match op {
-                // Halt (end of program, return str)
-                OpCode::Halt => break,
-                // OpCodes with 2 operands:
-                OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
-                    str.push_str(&op.to_string());
-                    str.push_str(&format!(
-                        "({})",
-                        code[ip + 1] as usize + ((code[ip + 2] as usize) << 8)
-                    ));
-                    ip += 3;
-                }
-
-                // OpCodes with 1 operand:
-                OpCode::Call
-                | OpCode::SetLocal
-                | OpCode::GetGlobal
-                | OpCode::SetGlobal
-                | OpCode::GetLocal => {
-                    str.push_str(&op.to_string());
-                    str.push_str(&format!("({})", code[ip + 1]));
-                    ip += 2;
-                }
-
-                // Single opcode (no operands)
-                _ => {
-                    str.push_str(&op.to_string());
-                    ip += 1;
-                }
-            }
-            str.push_str(" ");
-        }
-
-        // trim trailing whitespace while modifying original string in place
-        str.truncate(str.trim().len());
-        return str;
-    }
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();

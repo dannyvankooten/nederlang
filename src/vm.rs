@@ -1,4 +1,4 @@
-use crate::compiler::{OpCode, Program};
+use crate::compiler::{bytecode_to_human, OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
@@ -88,6 +88,16 @@ const OP_RETURN: u8 = OpCode::Return as u8;
 const OP_HALT: u8 = OpCode::Halt as u8;
 
 fn run(program: Program) -> Result<NlObject, Error> {
+    #[cfg(debug_assertions)]
+    #[cfg(not(test))]
+    {
+        println!("Bytecode (raw): {:?}", &program.instructions);
+        println!(
+            "Bytecode (human): {:?}",
+            bytecode_to_human(&program.instructions)
+        );
+    }
+
     let constants = program.constants;
     let mut stack = Vec::with_capacity(64);
     let mut globals = Vec::with_capacity(8);

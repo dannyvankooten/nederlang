@@ -1,13 +1,14 @@
+extern crate nederlang;
+
 use std::fs;
 use std::io::{self, Write};
 use std::mem::size_of;
 use std::path::Path;
-extern crate nederlang;
-use eval::eval_program;
-use nederlang::eval;
+
+use nederlang::eval::eval_program;
 use nederlang::object::NlObject;
-use nederlang::vm;
-use vm::run_str;
+use nederlang::vm::run_str;
+use std::env::args;
 
 fn run_repl(use_vm: bool) {
     let mut buffer = String::with_capacity(512);
@@ -46,7 +47,6 @@ fn run_from_file(f: &Path, use_vm: bool) {
         }
     }
 }
-use std::env::args;
 
 fn main() -> io::Result<()> {
     assert!(
