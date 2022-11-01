@@ -98,10 +98,7 @@ impl Environment {
     }
 }
 
-pub(crate) fn eval_program(
-    program: &str,
-    env: Option<&mut Environment>,
-) -> Result<NlObject, Error> {
+pub fn eval_program(program: &str, env: Option<&mut Environment>) -> Result<NlObject, Error> {
     let mut default_env = Environment::new();
     let env = env.unwrap_or(&mut default_env);
     let ast = parser::parse(program).map_err(Error::SyntaxError)?;
@@ -474,8 +471,6 @@ fn eval_index_expression(expr: &ExprIndex, env: &mut Environment) -> Result<NlOb
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
-    extern crate test;
 
     #[test]
     fn test_int_arithmetic() {
@@ -888,38 +883,5 @@ mod tests {
     fn test_builtins() {
         assert_eq!(eval_program("len([1, 2, 3])", None), Ok(NlObject::Int(3)));
         assert_eq!(eval_program("len(\"foobar\")", None), Ok(NlObject::Int(6)));
-    }
-
-    #[bench]
-    fn bench_arithmetic(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(
-                Ok(NlObject::Int(1337)),
-                eval_program(include_str!("../examples/benchmark_1.nl"), None),
-            );
-        });
-    }
-
-    #[bench]
-    fn bench_fib_recursive_22(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(
-                Ok(NlObject::Int(17711)),
-                eval_program(
-                    "
-                    stel fib = functie(n) {
-                        als n < 2 {
-                            antwoord n
-                        } 
-                        
-                        fib(n - 1) + fib(n - 2)
-                    }
-                    
-                    fib(22)
-                ",
-                    None
-                ),
-            );
-        });
     }
 }

@@ -5,7 +5,7 @@ use std::ops;
 use std::string::String;
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum Error {
+pub enum Error {
     TypeError(String),
     SyntaxError(ParseError),
     ReferenceError(String),
@@ -13,7 +13,7 @@ pub(crate) enum Error {
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
-pub(crate) enum NlObject {
+pub enum NlObject {
     Null,
     Int(i64),
     Float(f64),
@@ -26,7 +26,7 @@ pub(crate) enum NlObject {
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
-pub(crate) struct NlFuncObject {
+pub struct NlFuncObject {
     pub(crate) name: String,
     pub(crate) parameters: Vec<String>,
     pub(crate) body: BlockStmt,

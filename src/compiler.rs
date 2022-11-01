@@ -161,19 +161,17 @@ impl<'a> CompilerScope<'a> {
 
         match operand {
             // Opcodes with 2 operands (2^16 max value)
-            OpCode::Const
-            | OpCode::Jump
-            | OpCode::JumpIfFalse
-            | OpCode::SetGlobal
-            | OpCode::SetLocal
-            | OpCode::GetGlobal
-            | OpCode::GetLocal => {
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
                 bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
                 bytecode.push(byte!(value, 1));
             }
             // OpCodes with 1 operand:
-            OpCode::Call => {
+            OpCode::Call
+            | OpCode::SetLocal
+            | OpCode::GetLocal
+            | OpCode::SetGlobal
+            | OpCode::GetGlobal => {
                 bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
             }
@@ -458,13 +456,7 @@ mod tests {
                 // Halt (end of program, return str)
                 OpCode::Halt => break,
                 // OpCodes with 2 operands:
-                OpCode::Const
-                | OpCode::Jump
-                | OpCode::JumpIfFalse
-                | OpCode::GetGlobal
-                | OpCode::SetGlobal
-                | OpCode::SetLocal
-                | OpCode::GetLocal => {
+                OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
                     str.push_str(&op.to_string());
                     str.push_str(&format!(
                         "({})",
@@ -474,7 +466,11 @@ mod tests {
                 }
 
                 // OpCodes with 1 operand:
-                OpCode::Call => {
+                OpCode::Call
+                | OpCode::SetLocal
+                | OpCode::GetGlobal
+                | OpCode::SetGlobal
+                | OpCode::GetLocal => {
                     str.push_str(&op.to_string());
                     str.push_str(&format!("({})", code[ip + 1]));
                     ip += 2;

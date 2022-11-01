@@ -1,23 +1,13 @@
-#![feature(test)]
-
-mod ast;
-mod builtins;
-mod compiler;
-mod eval;
-mod lexer;
-mod object;
-mod parser;
-mod vm;
-
 use std::fs;
 use std::io::{self, Write};
 use std::mem::size_of;
 use std::path::Path;
-
+extern crate nederlang;
 use eval::eval_program;
+use nederlang::eval;
+use nederlang::object::NlObject;
+use nederlang::vm;
 use vm::run_str;
-
-use crate::object::NlObject;
 
 fn run_repl(use_vm: bool) {
     let mut buffer = String::with_capacity(512);

@@ -329,9 +329,7 @@ pub fn is_whitespace(c: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    extern crate test;
     use super::*;
-    use test::Bencher;
 
     #[test]
     fn ints() {
@@ -432,14 +430,5 @@ mod tests {
                 input
             );
         }
-    }
-
-    #[bench]
-    fn bench_tokenizer(b: &mut Bencher) {
-        let input = std::fs::read_to_string("./examples/cargo.rs_example").unwrap();
-        b.iter(|| {
-            let v = Tokenizer::new(&input).collect::<Vec<Token>>();
-            assert!(!v.is_empty());
-        });
     }
 }

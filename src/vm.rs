@@ -54,15 +54,37 @@ impl Frame {
     }
 }
 
-pub(crate) fn run_str(program: &str) -> Result<NlObject, Error> {
+pub fn run_str(program: &str) -> Result<NlObject, Error> {
     let ast = parse(program).map_err(Error::SyntaxError)?;
     let program = Program::new(&ast);
     run(program)
 }
 
-const OBJECT_NULL: NlObject = NlObject::Null;
-const OBJECT_TRUE: NlObject = NlObject::Bool(true);
-const OBJECT_FALSE: NlObject = NlObject::Bool(false);
+const OP_CONST: u8 = OpCode::Const as u8;
+const OP_POP: u8 = OpCode::Pop as u8;
+const OP_NULL: u8 = OpCode::Null as u8;
+const OP_TRUE: u8 = OpCode::True as u8;
+const OP_FALSE: u8 = OpCode::False as u8;
+const OP_GETLOCAL: u8 = OpCode::GetLocal as u8;
+const OP_SETLOCAL: u8 = OpCode::SetLocal as u8;
+const OP_GETGLOBAL: u8 = OpCode::GetGlobal as u8;
+const OP_SETGLOBAL: u8 = OpCode::SetGlobal as u8;
+const OP_CALL: u8 = OpCode::Call as u8;
+const OP_JUMP: u8 = OpCode::Jump as u8;
+const OP_JUMPIFFALSE: u8 = OpCode::JumpIfFalse as u8;
+const OP_ADD: u8 = OpCode::Add as u8;
+const OP_SUBTRACT: u8 = OpCode::Subtract as u8;
+const OP_DIVIDE: u8 = OpCode::Divide as u8;
+const OP_MULTIPLY: u8 = OpCode::Multiply as u8;
+const OP_GT: u8 = OpCode::Gt as u8;
+const OP_GTE: u8 = OpCode::Gte as u8;
+const OP_LT: u8 = OpCode::Lt as u8;
+const OP_LTE: u8 = OpCode::Lte as u8;
+const OP_EQ: u8 = OpCode::Eq as u8;
+const OP_NEQ: u8 = OpCode::Neq as u8;
+const OP_RETURNVALUE: u8 = OpCode::ReturnValue as u8;
+const OP_RETURN: u8 = OpCode::Return as u8;
+const OP_HALT: u8 = OpCode::Halt as u8;
 
 fn run(program: Program) -> Result<NlObject, Error> {
     let constants = program.constants;
@@ -70,7 +92,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
     let mut globals = Vec::with_capacity(64);
     let mut frames = Vec::with_capacity(64);
     frames.push(Frame::new(program.instructions, 0));
-    let mut result = OBJECT_NULL;
+    let mut result = NlObject::Null;
     let mut frame = frames.iter_mut().last().unwrap();
 
     macro_rules! impl_binary_op_method {
@@ -103,54 +125,53 @@ fn run(program: Program) -> Result<NlObject, Error> {
 
         // TODO: Match as u8, or is compiler smart enough?
         // TODO: Computed go-to by dropping to ASM?
-        let opcode_u8 = unsafe { *frame.instructions.get_unchecked(frame.ip) };
-        let opcode = OpCode::from(opcode_u8);
+        let opcode = unsafe { frame.instructions.get_unchecked(frame.ip) };
         match opcode {
-            OpCode::Const => {
+            &OP_CONST => {
                 let idx = read_u16_operand!(frame.instructions, frame.ip);
                 let obj = unsafe { constants.get_unchecked(idx) };
                 stack.push(obj.clone());
                 frame.ip += 3;
             }
-            OpCode::Pop => {
+            &OP_POP => {
                 result = pop(&mut stack);
                 frame.ip += 1;
             }
-            OpCode::Null => {
-                stack.push(OBJECT_NULL);
+            &OP_NULL => {
+                stack.push(NlObject::Null);
                 frame.ip += 1;
             }
-            OpCode::Jump => {
+            &OP_JUMP => {
                 frame.ip = read_u16_operand!(frame.instructions, frame.ip);
             }
-            OpCode::JumpIfFalse => {
+            &OP_JUMPIFFALSE => {
                 let condition = pop(&mut stack);
-                if !condition.is_truthy() {
-                    frame.ip = read_u16_operand!(frame.instructions, frame.ip);
-                } else {
+                if condition.is_truthy() {
                     frame.ip += 3;
+                } else {
+                    frame.ip = read_u16_operand!(frame.instructions, frame.ip);
                 }
             }
-            OpCode::True => {
-                stack.push(OBJECT_TRUE);
+            &OP_TRUE => {
+                stack.push(NlObject::Bool(true));
                 frame.ip += 1;
             }
-            OpCode::False => {
-                stack.push(OBJECT_FALSE);
+            &OP_FALSE => {
+                stack.push(NlObject::Bool(false));
                 frame.ip += 1;
             }
-            OpCode::Add => impl_binary_op_method!(add),
-            OpCode::Subtract => impl_binary_op_method!(sub),
-            OpCode::Divide => impl_binary_op_method!(div),
-            OpCode::Multiply => impl_binary_op_method!(mul),
-            OpCode::Gt => impl_binary_op_method!(gt),
-            OpCode::Gte => impl_binary_op_method!(gte),
-            OpCode::Lt => impl_binary_op_method!(lt),
-            OpCode::Lte => impl_binary_op_method!(lte),
-            OpCode::Eq => impl_binary_op_method!(eq),
-            OpCode::Neq => impl_binary_op_method!(neq),
-            OpCode::Halt => return Ok(result.clone()),
-            OpCode::ReturnValue => {
+            &OP_ADD => impl_binary_op_method!(add),
+            &OP_SUBTRACT => impl_binary_op_method!(sub),
+            &OP_DIVIDE => impl_binary_op_method!(div),
+            &OP_MULTIPLY => impl_binary_op_method!(mul),
+            &OP_GT => impl_binary_op_method!(gt),
+            &OP_GTE => impl_binary_op_method!(gte),
+            &OP_LT => impl_binary_op_method!(lt),
+            &OP_LTE => impl_binary_op_method!(lte),
+            &OP_EQ => impl_binary_op_method!(eq),
+            &OP_NEQ => impl_binary_op_method!(neq),
+            &OP_HALT => return Ok(result.clone()),
+            &OP_RETURNVALUE => {
                 let result = pop(&mut stack);
                 stack.truncate(frame.base_pointer);
                 stack.push(result);
@@ -158,13 +179,13 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OpCode::Return => {
+            &OP_RETURN => {
                 stack.truncate(frame.base_pointer);
                 frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OpCode::Call => {
+            &OP_CALL => {
                 let num_args = read_u8_operand!(frame.instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
                 let instructions = match pop(&mut stack) {
@@ -175,40 +196,40 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frames.push(Frame::new(instructions, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
-            OpCode::SetGlobal => {
-                let idx = read_u16_operand!(frame.instructions, frame.ip);
+            &OP_SETGLOBAL => {
+                let idx = read_u8_operand!(frame.instructions, frame.ip);
                 globals.insert(idx, pop(&mut stack));
-                frame.ip += 3;
+                frame.ip += 2;
             }
-            OpCode::GetGlobal => {
-                let idx = read_u16_operand!(frame.instructions, frame.ip);
+            &OP_GETGLOBAL => {
+                let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let obj = globals.get(idx).unwrap();
                 stack.push(obj.clone());
-                frame.ip += 3;
+                frame.ip += 2;
             }
-            OpCode::SetLocal => {
-                let idx = read_u16_operand!(frame.instructions, frame.ip);
+            &OP_SETLOCAL => {
+                let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let value = pop(&mut stack);
                 let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
                 *obj = value;
-                frame.ip += 3;
+                frame.ip += 2;
             }
-            OpCode::GetLocal => {
-                let idx = read_u16_operand!(frame.instructions, frame.ip);
+            &OP_GETLOCAL => {
+                let idx = read_u8_operand!(frame.instructions, frame.ip);
                 let value = stack.get(frame.base_pointer + idx).unwrap();
                 stack.push(value.clone());
-                frame.ip += 3;
+                frame.ip += 2;
             }
-            _ => unimplemented!("Missing implementation for opcode {:?}", opcode),
+            _ => panic!(
+                "Missing implementation for opcode {:?}",
+                OpCode::from(*opcode)
+            ),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate test;
-    use test::Bencher;
-
     use super::*;
 
     #[test]
@@ -302,37 +323,5 @@ mod tests {
         // assert!(run_str("functie() { stel a = 2; } a").is_err());
 
         // assert!(run_str("{ stel a = 2; } a").is_err());
-    }
-
-    #[bench]
-    fn bench_arithmetic(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(
-                Ok(NlObject::Int(1337)),
-                run_str(include_str!("../examples/benchmark_1.nl")),
-            );
-        });
-    }
-
-    #[bench]
-    fn bench_fib_recursive_22(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(
-                Ok(NlObject::Int(17711)),
-                run_str(
-                    "
-                    stel fib = functie(n) {
-                        als n < 2 {
-                            antwoord n
-                        } 
-                        
-                        fib(n - 1) + fib(n - 2)
-                    }
-                    
-                    fib(22)
-                "
-                ),
-            );
-        });
     }
 }

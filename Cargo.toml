@@ -8,8 +8,24 @@ edition = "2021"
 [dependencies]
 hashbrown = "0.12"
 
+[dev-dependencies]
+criterion = "0.3"
+
 [profile.bench]
 lto = true
 
 [profile.release]
 debug = true
+
+# Criterion benchmarks:
+[[bench]]
+name = "bench_recursive_fib"
+harness = false
+
+[[bench]]
+name = "bench_parser"
+harness = false
+
+[[bench]]
+name = "bench_arithmetic"
+harness = false

@@ -367,7 +367,7 @@ impl<'a> Parser<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct ParseError(String);
+pub struct ParseError(String);
 
 impl ParseError {
     fn new(message: String) -> ParseError {
@@ -376,7 +376,7 @@ impl ParseError {
 }
 
 /// Parses the program string into an AST representation
-pub(crate) fn parse(program: &str) -> Result<BlockStmt, ParseError> {
+pub fn parse(program: &str) -> Result<BlockStmt, ParseError> {
     let mut parser = Parser::new(program);
     let mut block = BlockStmt::with_capacity(64);
 
@@ -743,16 +743,5 @@ mod tests {
         ] {
             assert_eq!(parse(input).unwrap(), expected_ast)
         }
-    }
-
-    /// Parser benchmarks
-    extern crate test;
-    use test::Bencher;
-    #[bench]
-    fn bench_parser(b: &mut Bencher) {
-        let input = std::fs::read_to_string("./examples/vanalles.nl").unwrap();
-        b.iter(|| {
-            assert!(parse(&input).is_ok());
-        });
     }
 }
