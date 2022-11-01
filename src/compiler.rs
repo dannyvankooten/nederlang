@@ -9,6 +9,15 @@ macro_rules! byte {
     };
 }
 
+macro_rules! read_u16_operand {
+    ($instructions:expr, $ip:expr) => {
+        unsafe {
+            (*$instructions.get_unchecked($ip + 1) as usize)
+                + ((*$instructions.get_unchecked($ip + 2) as usize) << 8)
+        }
+    };
+}
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum OpCode {
@@ -75,6 +84,26 @@ impl From<u8> for OpCode {
     #[inline]
     fn from(value: u8) -> Self {
         unsafe { return *U8_TO_OPCODE_MAP.get_unchecked(value as usize) }
+    }
+}
+
+impl OpCode {
+    /// Returns the number of operands for the OpCode variant
+    fn num_operands(&self) -> usize {
+        match self {
+            // OpCodes with 2 operands:
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => 2,
+
+            // OpCodes with 1 operand:
+            OpCode::Call
+            | OpCode::SetLocal
+            | OpCode::GetGlobal
+            | OpCode::SetGlobal
+            | OpCode::GetLocal => 1,
+
+            // Single opcode (no operands)
+            _ => 0,
+        }
     }
 }
 
@@ -153,25 +182,27 @@ impl<'a> CompilerScope<'a> {
         let bytecode = &mut self.instructions;
         let pos = bytecode.len();
 
-        match operand {
+        match operand.num_operands() {
             // Opcodes with 2 operands (2^16 max value)
-            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+            2 => {
                 bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
                 bytecode.push(byte!(value, 1));
             }
-            // OpCodes with 1 operand:
-            OpCode::Call
-            | OpCode::SetLocal
-            | OpCode::GetLocal
-            | OpCode::SetGlobal
-            | OpCode::GetGlobal => {
+            // OpCodes with a single operand (2^8 max value)
+            1 => {
                 bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
             }
 
             // OpCodes with 0 operands:
-            _ => bytecode.push(operand as u8),
+            0 => {
+                // In case we call add_instruction for an opcode that should have a value, throw a helpful panic here
+                assert_eq!(value, 0);
+                bytecode.push(operand as u8);
+            }
+
+            _ => panic!("Invalid operand width"),
         }
 
         pos
@@ -373,8 +404,9 @@ impl<'a> CompilerScope<'a> {
             return pos;
         }
 
+        let idx = self.constants.len();
         self.constants.push(obj);
-        self.constants.len() - 1
+        idx
     }
 }
 
@@ -389,6 +421,46 @@ enum Scope {
     Global,
 }
 
+/// Merge two bytecode vectors, updating any instruction operands that refer to an index (eg OpCode::Jump)
+/// This merges b into a
+fn merge_instructions(a: &mut Vec<u8>, b: &Vec<u8>) {
+    let offset = a.len();
+
+    let mut ip = 0;
+    while ip < b.len() {
+        let opcode = OpCode::from(b[ip]);
+        match opcode {
+            OpCode::Jump | OpCode::JumpIfFalse => {
+                let previous = read_u16_operand!(b, ip);
+                let new = previous + offset;
+                a.push(b[ip]);
+                a.push(byte!(new, 0));
+                a.push(byte!(new, 1));
+                ip += 3;
+            }
+
+            _ => {
+                let num_operands = opcode.num_operands();
+                match num_operands {
+                    2 => {
+                        a.push(b[ip]);
+                        a.push(b[ip + 1]);
+                        a.push(b[ip + 2]);
+                    }
+                    1 => {
+                        a.push(b[ip]);
+                        a.push(b[ip + 1]);
+                    }
+                    _ => {
+                        a.push(b[ip]);
+                    }
+                }
+                ip += 1 + num_operands;
+            }
+        }
+    }
+}
+
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Self {
         let mut symbol_table = SymbolTable::new();
@@ -397,11 +469,23 @@ impl Program {
         scope.compile_block_statement(ast);
         scope.add_instruction(OpCode::Halt, 0);
 
-        // Shrink instructions to least possible size
-        scope.instructions.shrink_to_fit();
-        let instructions = scope.instructions;
+        let mut instructions = scope.instructions;
 
-        // Shrink constants to least possible size
+        // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
+        for c in &mut constants {
+            match &c {
+                NlObject::CompiledFunction(func) => {
+                    let offset = instructions.len();
+                    merge_instructions(&mut instructions, &func.0);
+                    // replace object with a simple InstructionPointer
+                    *c = NlObject::InstructionPointer(offset as u16);
+                }
+                _ => (),
+            }
+        }
+
+        // Shrink everything to least possible size
+        instructions.shrink_to_fit();
         constants.shrink_to_fit();
 
         Self {
@@ -451,38 +535,28 @@ pub fn bytecode_to_human(code: &[u8]) -> String {
     let mut ip = 0;
     let mut str = String::with_capacity(256);
 
-    loop {
+    while ip < code.len() {
         let op = OpCode::from(code[ip]);
-        match op {
-            // Halt (end of program, return str)
-            OpCode::Halt => break,
+        match op.num_operands() {
             // OpCodes with 2 operands:
-            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => {
+            2 => {
                 str.push_str(&op.to_string());
-                str.push_str(&format!(
-                    "({})",
-                    code[ip + 1] as usize + ((code[ip + 2] as usize) << 8)
-                ));
-                ip += 3;
+                str.push_str(&format!("({})", read_u16_operand!(code, ip)));
             }
 
             // OpCodes with 1 operand:
-            OpCode::Call
-            | OpCode::SetLocal
-            | OpCode::GetGlobal
-            | OpCode::SetGlobal
-            | OpCode::GetLocal => {
+            1 => {
                 str.push_str(&op.to_string());
                 str.push_str(&format!("({})", code[ip + 1]));
-                ip += 2;
             }
 
             // Single opcode (no operands)
             _ => {
                 str.push_str(&op.to_string());
-                ip += 1;
             }
         }
+
+        ip += 1 + op.num_operands();
         str.push_str(" ");
     }
 
@@ -522,54 +596,57 @@ mod tests {
 
     #[test]
     fn test_int_expression() {
-        assert_eq!(run("5"), "Const(0) Pop");
-        assert_eq!(run("5; 5"), "Const(0) Pop Const(0) Pop");
-        assert_eq!(run("5; 6; 5"), "Const(0) Pop Const(1) Pop Const(0) Pop");
+        assert_eq!(run("5"), "Const(0) Pop Halt");
+        assert_eq!(run("5; 5"), "Const(0) Pop Const(0) Pop Halt");
+        assert_eq!(
+            run("5; 6; 5"),
+            "Const(0) Pop Const(1) Pop Const(0) Pop Halt"
+        );
     }
 
     #[test]
     fn test_bool_expression() {
-        assert_eq!(run("ja"), "True Pop");
-        assert_eq!(run("ja; ja"), "True Pop True Pop");
-        assert_eq!(run("nee"), "False Pop");
+        assert_eq!(run("ja"), "True Pop Halt");
+        assert_eq!(run("ja; ja"), "True Pop True Pop Halt");
+        assert_eq!(run("nee"), "False Pop Halt");
     }
 
     #[test]
     fn test_float_expression() {
-        assert_eq!(run("1.23"), "Const(0) Pop");
-        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(0) Pop");
+        assert_eq!(run("1.23"), "Const(0) Pop Halt");
+        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(0) Pop Halt");
         assert_eq!(
             run("5.00; 6.00; 5.00"),
-            "Const(0) Pop Const(1) Pop Const(0) Pop"
+            "Const(0) Pop Const(1) Pop Const(0) Pop Halt"
         );
     }
 
     #[test]
     fn test_infix_expression() {
-        assert_eq!(run("1 + 2"), "Const(0) Const(1) Add Pop");
-        assert_eq!(run("1 - 2"), "Const(0) Const(1) Subtract Pop");
-        assert_eq!(run("1 * 2"), "Const(0) Const(1) Multiply Pop");
-        assert_eq!(run("1 / 2"), "Const(0) Const(1) Divide Pop");
+        assert_eq!(run("1 + 2"), "Const(0) Const(1) Add Pop Halt");
+        assert_eq!(run("1 - 2"), "Const(0) Const(1) Subtract Pop Halt");
+        assert_eq!(run("1 * 2"), "Const(0) Const(1) Multiply Pop Halt");
+        assert_eq!(run("1 / 2"), "Const(0) Const(1) Divide Pop Halt");
         assert_eq!(
             run("1 * 2 * 3"),
-            "Const(0) Const(1) Multiply Const(2) Multiply Pop"
+            "Const(0) Const(1) Multiply Const(2) Multiply Pop Halt"
         );
     }
 
     #[test]
     fn test_block_statements() {
-        assert_eq!(run("{ 1 }"), "Const(0) Pop");
+        assert_eq!(run("{ 1 }"), "Const(0) Pop Halt");
     }
 
     #[test]
     fn test_if_expression() {
         assert_eq!(
             run("als ja { 1 }"),
-            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop"
+            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop Halt"
         );
         assert_eq!(
             run("als ja { 1 } anders { 2 }"),
-            "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop"
+            "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop Halt"
         );
     }
 
@@ -577,7 +654,10 @@ mod tests {
     fn test_function_expression() {
         // Const(0) is inside the function
         // Const(1) is the compiled function
-        assert_eq!(run("functie() { 1 }"), "Const(1) Pop");
+        assert_eq!(
+            run("functie() { 1 }"),
+            "Const(1) Pop Halt Const(0) ReturnValue"
+        );
     }
 
     #[test]
@@ -588,17 +668,17 @@ mod tests {
         // Call(2) = call last object on stack with 2 args
         assert_eq!(
             run("functie(a, b) { 1 }(1, 2)"),
-            "Const(0) Const(1) Const(2) Call(2) Pop"
+            "Const(0) Const(1) Const(2) Call(2) Pop Halt Const(0) ReturnValue"
         );
     }
 
     #[test]
     fn test_declare_statement() {
-        assert_eq!(run("stel a = 1;"), "Const(0) SetGlobal(0)");
+        assert_eq!(run("stel a = 1;"), "Const(0) SetGlobal(0) Halt");
 
         assert_eq!(
             run("stel a = 1; stel b = 2;"),
-            "Const(0) SetGlobal(0) Const(1) SetGlobal(1)"
+            "Const(0) SetGlobal(0) Const(1) SetGlobal(1) Halt"
         );
 
         // TODO: Test scoped variables
@@ -608,12 +688,12 @@ mod tests {
     fn test_ident_expressions() {
         assert_eq!(
             run("stel a = 1; a"),
-            "Const(0) SetGlobal(0) GetGlobal(0) Pop"
+            "Const(0) SetGlobal(0) GetGlobal(0) Pop Halt"
         );
 
         assert_eq!(
             run("stel a = 1; stel b = 2; a; b;"),
-            "Const(0) SetGlobal(0) Const(1) SetGlobal(1) GetGlobal(0) Pop GetGlobal(1) Pop"
+            "Const(0) SetGlobal(0) Const(1) SetGlobal(1) GetGlobal(0) Pop GetGlobal(1) Pop Halt"
         );
 
         // TODO: Test scoped variables

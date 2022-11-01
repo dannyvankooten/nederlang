@@ -18,6 +18,7 @@ pub enum NlObject {
     Int(i64),
     Float(f64),
     Bool(bool),
+    InstructionPointer(u16),
     CompiledFunction(Box<(Vec<u8>, u8)>),
     String(Box<String>),
     Func(Box<NlFuncObject>),

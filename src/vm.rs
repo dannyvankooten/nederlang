@@ -20,9 +20,6 @@ macro_rules! read_u16_operand {
 }
 
 struct Frame {
-    /// The compiled bytecode
-    instructions: Vec<u8>,
-
     /// Index of the current instruction
     ip: usize,
 
@@ -46,12 +43,8 @@ fn pop(slice: &mut Vec<NlObject>) -> NlObject {
 
 impl Frame {
     #[inline]
-    fn new(instructions: Vec<u8>, base_pointer: usize) -> Self {
-        Frame {
-            ip: 0,
-            instructions,
-            base_pointer,
-        }
+    fn new(ip: usize, base_pointer: usize) -> Self {
+        Frame { ip, base_pointer }
     }
 }
 
@@ -98,11 +91,12 @@ fn run(program: Program) -> Result<NlObject, Error> {
         );
     }
 
+    let instructions = program.instructions;
     let constants = program.constants;
     let mut stack = Vec::with_capacity(64);
     let mut globals = Vec::with_capacity(8);
     let mut frames = Vec::with_capacity(32);
-    frames.push(Frame::new(program.instructions, 0));
+    frames.push(Frame::new(0, 0));
     let mut result = NlObject::Null;
     let mut frame = frames.iter_mut().last().unwrap();
 
@@ -116,7 +110,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
         }};
     }
 
-    if frame.instructions.is_empty() {
+    if instructions.is_empty() {
         return Ok(result.clone());
     }
 
@@ -127,17 +121,17 @@ fn run(program: Program) -> Result<NlObject, Error> {
             println!("Stack: {:?}", stack);
             println!(
                 "Next bytes: {:?} {:?} {:?}",
-                OpCode::from(*frame.instructions.get(frame.ip).unwrap()),
-                frame.instructions.get(frame.ip + 1),
-                frame.instructions.get(frame.ip + 2)
+                OpCode::from(*instructions.get(frame.ip).unwrap()),
+                instructions.get(frame.ip + 1),
+                instructions.get(frame.ip + 2)
             );
             println!();
         }
 
-        let opcode = unsafe { *frame.instructions.get_unchecked(frame.ip) };
+        let opcode = unsafe { *instructions.get_unchecked(frame.ip) };
         match opcode {
             OP_CONST => {
-                let idx = read_u16_operand!(frame.instructions, frame.ip);
+                let idx = read_u16_operand!(instructions, frame.ip);
                 let obj = unsafe { constants.get_unchecked(idx) };
                 stack.push(obj.clone());
                 frame.ip += 3;
@@ -151,14 +145,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OP_JUMP => {
-                frame.ip = read_u16_operand!(frame.instructions, frame.ip);
+                frame.ip = read_u16_operand!(instructions, frame.ip);
             }
             OP_JUMPIFFALSE => {
                 let condition = pop(&mut stack);
                 if condition.is_truthy() {
                     frame.ip += 3;
                 } else {
-                    frame.ip = read_u16_operand!(frame.instructions, frame.ip);
+                    frame.ip = read_u16_operand!(instructions, frame.ip);
                 }
             }
             OP_TRUE => {
@@ -195,36 +189,36 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OP_CALL => {
-                let num_args = read_u8_operand!(frame.instructions, frame.ip);
+                let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
-                let instructions = match pop(&mut stack) {
-                    NlObject::CompiledFunction(fn_obj) => fn_obj.0,
+                let ip = match pop(&mut stack) {
+                    NlObject::InstructionPointer(ip) => ip,
                     _ => unimplemented!(),
                 };
                 frame.ip += 1;
-                frames.push(Frame::new(instructions, base_pointer));
+                frames.push(Frame::new(ip as usize, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
             OP_SETGLOBAL => {
-                let idx = read_u8_operand!(frame.instructions, frame.ip);
+                let idx = read_u8_operand!(instructions, frame.ip);
                 globals.insert(idx, pop(&mut stack));
                 frame.ip += 2;
             }
             OP_GETGLOBAL => {
-                let idx = read_u8_operand!(frame.instructions, frame.ip);
+                let idx = read_u8_operand!(instructions, frame.ip);
                 let obj = globals.get(idx).unwrap();
                 stack.push(obj.clone());
                 frame.ip += 2;
             }
             OP_SETLOCAL => {
-                let idx = read_u8_operand!(frame.instructions, frame.ip);
+                let idx = read_u8_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
                 let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
                 *obj = value;
                 frame.ip += 2;
             }
             OP_GETLOCAL => {
-                let idx = read_u8_operand!(frame.instructions, frame.ip);
+                let idx = read_u8_operand!(instructions, frame.ip);
                 let value = stack.get(frame.base_pointer + idx).unwrap();
                 stack.push(value.clone());
                 frame.ip += 2;
