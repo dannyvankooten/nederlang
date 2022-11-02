@@ -320,7 +320,30 @@ impl<'a> CompilerScope<'a> {
                             self.add_instruction(OpCode::GetLocal, symbol.index);
                         }
                     }
-                    None => panic!("Invalid identifier."),
+                    None => panic!("Invalid identifier: {}", name),
+                }
+            }
+            Expr::Assign(expr) => {
+                let name = match &*expr.left {
+                    Expr::Identifier(name) => name,
+                    _ => panic!("Can not assign to expression of type {:?}", expr.left),
+                };
+
+                let symbol = self.symbol_table.resolve(name);
+                match symbol {
+                    Some(symbol) => {
+                        self.compile_expression(&expr.right);
+
+                        if symbol.scope == Scope::Global {
+                            // TODO: Create superinstruction for this?
+                            self.add_instruction(OpCode::SetGlobal, symbol.index);
+                            self.add_instruction(OpCode::GetGlobal, symbol.index);
+                        } else {
+                            self.add_instruction(OpCode::SetLocal, symbol.index);
+                            self.add_instruction(OpCode::GetLocal, symbol.index);
+                        }
+                    }
+                    None => panic!("Invalid identifier: {}", name),
                 }
             }
             Expr::Infix(expr) => {
@@ -358,6 +381,32 @@ impl<'a> CompilerScope<'a> {
                     self.current_instructions_len(),
                 );
             }
+            Expr::While(expr) => {
+                self.add_instruction(OpCode::Null, 0);
+                let pos_before_condition = self.instructions.len();
+                self.compile_expression(&expr.condition);
+
+                let pos_jump_if_false = self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
+                self.add_instruction(OpCode::Pop, 0);
+                self.compile_block_statement(&expr.body);
+
+                if self.last_instruction_is(OpCode::Pop) {
+                    self.remove_last_instruction();
+                } else {
+                    self.add_instruction(OpCode::Null, 0);
+                }
+
+                // jump back to condition
+                self.add_instruction(OpCode::Jump, pos_before_condition);
+                let pos_after_body = self.instructions.len();
+                self.change_instruction_operand_at(
+                    OpCode::JumpIfFalse,
+                    pos_jump_if_false,
+                    pos_after_body,
+                );
+
+                // TODO: Add support for break & continue
+            }
             Expr::Function(_name, parameters, body) => {
                 // Compile function in a new scope
                 let mut scope = CompilerScope::new(self.constants, self.symbol_table);
@@ -375,22 +424,18 @@ impl<'a> CompilerScope<'a> {
                 }
 
                 let num_locals = scope.symbol_table.leave_scope() as u8;
-                // Shrink instructions to least possible size
-                let mut instructions = scope.instructions;
-                instructions.shrink_to_fit();
-
-                let id = self.add_constant(NlObject::CompiledFunction(Box::new((
+                let instructions = scope.instructions;
+                let idx = self.add_constant(NlObject::CompiledFunction(Box::new((
                     instructions,
                     num_locals,
                 ))));
-                self.add_instruction(OpCode::Const, id);
+                self.add_instruction(OpCode::Const, idx);
             }
             Expr::Call(expr) => {
                 for a in &expr.arguments {
                     self.compile_expression(a);
                 }
                 self.compile_expression(&expr.left);
-
                 self.add_instruction(OpCode::Call, expr.arguments.len());
             }
 
@@ -422,7 +467,7 @@ enum Scope {
 }
 
 /// Merge two bytecode vectors, updating any instruction operands that refer to an index (eg OpCode::Jump)
-/// This merges b into a
+/// This merges b into a (modifying a in place)
 fn merge_instructions(a: &mut Vec<u8>, b: &Vec<u8>) {
     let offset = a.len();
 
@@ -478,7 +523,7 @@ impl Program {
                     let offset = instructions.len();
                     merge_instructions(&mut instructions, &func.0);
                     // replace object with a simple InstructionPointer
-                    *c = NlObject::InstructionPointer(offset as u16);
+                    *c = NlObject::CompiledFunctionPointer(offset as u16, func.1);
                 }
                 _ => (),
             }

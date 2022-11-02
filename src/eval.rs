@@ -1,5 +1,5 @@
 use crate::ast::{
-    BlockStmt, Expr, ExprArray, ExprAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprIndex,
+    BlockStmt, Expr, ExprArray, StmtAssign, ExprBool, ExprCall, ExprFloat, ExprIf, ExprIndex,
     ExprInfix, ExprInt, ExprPrefix, ExprString, ExprWhile, Operator, Stmt,
 };
 use crate::parser;

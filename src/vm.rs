@@ -93,11 +93,13 @@ fn run(program: Program) -> Result<NlObject, Error> {
 
     let instructions = program.instructions;
     let constants = program.constants;
+
     let mut stack = Vec::with_capacity(64);
     let mut globals = Vec::with_capacity(8);
     let mut frames = Vec::with_capacity(32);
-    frames.push(Frame::new(0, 0));
     let mut result = NlObject::Null;
+
+    frames.push(Frame::new(0, 0));
     let mut frame = frames.iter_mut().last().unwrap();
 
     macro_rules! impl_binary_op_method {
@@ -118,13 +120,18 @@ fn run(program: Program) -> Result<NlObject, Error> {
         #[cfg(debug_assertions)]
         #[cfg(not(test))]
         {
+            println!("Constants: {:?}", constants);
+            println!("Globals: {:?}", globals);
             println!("Stack: {:?}", stack);
+
             println!(
-                "Next bytes: {:?} {:?} {:?}",
-                OpCode::from(*instructions.get(frame.ip).unwrap()),
-                instructions.get(frame.ip + 1),
-                instructions.get(frame.ip + 2)
+                "Current instruction: {:?}",
+                bytecode_to_human(&instructions[frame.ip..])
+                    .split(" ")
+                    .next()
+                    .unwrap()
             );
+
             println!();
         }
 
@@ -191,10 +198,16 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OP_CALL => {
                 let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
-                let ip = match pop(&mut stack) {
-                    NlObject::InstructionPointer(ip) => ip,
+                let (ip, num_locals) = match pop(&mut stack) {
+                    NlObject::CompiledFunctionPointer(ip, num_locals) => (ip, num_locals),
                     _ => unimplemented!(),
                 };
+
+                // Make room on the stack for any local variables defined inside this function
+                for _ in 0..num_locals {
+                    stack.push(NlObject::Null);
+                }
+
                 frame.ip += 1;
                 frames.push(Frame::new(ip as usize, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
@@ -331,10 +344,18 @@ mod tests {
     }
 
     #[test]
-    fn test_recursion() {
+    fn test_fib_recursion() {
         assert_eq!(
             run_str("stel fib = functie(n) { als n < 2 { antwoord n; } fib(n - 1 ) + fib(n - 2) }; fib(6);"),
             Ok(NlObject::Int(8))
+        );
+    }
+
+    #[test]
+    fn test_fib_loop() {
+        assert_eq!(
+            run_str(include_str!("../examples/fib-loop.nl")),
+            Ok(NlObject::Int(9227465))
         );
     }
 

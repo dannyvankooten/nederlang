@@ -5,12 +5,11 @@ use std::io::{self, Write};
 use std::mem::size_of;
 use std::path::Path;
 
-use nederlang::eval::eval_program;
 use nederlang::object::NlObject;
 use nederlang::vm::run_str;
 use std::env::args;
 
-fn run_repl(use_vm: bool) {
+fn run_repl() {
     let mut buffer = String::with_capacity(512);
     loop {
         buffer.clear();
@@ -18,33 +17,19 @@ fn run_repl(use_vm: bool) {
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut buffer).unwrap();
 
-        if use_vm {
-            match run_str(&buffer) {
-                Ok(obj) => println!("{}", obj),
-                Err(e) => eprintln!("{:?}", e),
-            }
-        } else {
-            match eval_program(&buffer, None) {
-                Ok(obj) => println!("{}", obj),
-                Err(e) => eprintln!("{:?}", e),
-            }
+        match run_str(&buffer) {
+            Ok(obj) => println!("{}", obj),
+            Err(e) => eprintln!("{:?}", e),
         }
     }
 }
 
-fn run_from_file(f: &Path, use_vm: bool) {
+fn run_from_file(f: &Path) {
     let program = fs::read_to_string(f).unwrap();
 
-    if use_vm {
-        match run_str(&program) {
-            Ok(obj) => println!("{}", obj),
-            Err(e) => eprintln!("{:?}", e),
-        }
-    } else {
-        match eval_program(&program, None) {
-            Ok(obj) => println!("{}", obj),
-            Err(e) => eprintln!("{:?}", e),
-        }
+    match run_str(&program) {
+        Ok(obj) => println!("{}", obj),
+        Err(e) => eprintln!("{:?}", e),
     }
 }
 
@@ -55,13 +40,11 @@ fn main() -> io::Result<()> {
     );
 
     let file = args().skip(1).find(|a| !a.starts_with("--"));
-    let use_vm = args().any(|a| a == "--vm");
-
     if let Some(file) = file {
         let path = Path::new(&file);
-        run_from_file(path, use_vm);
+        run_from_file(path);
     } else {
-        run_repl(use_vm);
+        run_repl();
     }
     Ok(())
 }

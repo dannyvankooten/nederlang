@@ -18,12 +18,14 @@ pub enum NlObject {
     Int(i64),
     Float(f64),
     Bool(bool),
-    InstructionPointer(u16),
+    CompiledFunctionPointer(u16, u8),
     CompiledFunction(Box<(Vec<u8>, u8)>),
     String(Box<String>),
-    Func(Box<NlFuncObject>),
     Array(Box<Vec<NlObject>>),
     Return(Box<NlObject>),
+
+    // Func variant is only used in tree-walking evaluator.
+    Func(Box<NlFuncObject>),
 }
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
