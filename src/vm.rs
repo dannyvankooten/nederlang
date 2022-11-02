@@ -3,6 +3,7 @@ use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
 use std::ptr;
+use std::time::Duration;
 
 macro_rules! read_u8_operand {
     ($instructions:expr, $ip:expr) => {
@@ -55,8 +56,7 @@ pub fn run_str(program: &str) -> Result<NlObject, Error> {
 }
 
 fn run(program: Program) -> Result<NlObject, Error> {
-    #[cfg(debug_assertions)]
-    #[cfg(not(test))]
+    #[cfg(feature = "debug")]
     {
         println!("Bytecode (raw): {:?}", &program.instructions);
         println!(
@@ -92,8 +92,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
     }
 
     loop {
-        #[cfg(debug_assertions)]
-        #[cfg(not(test))]
+        #[cfg(feature = "debug")]
         {
             println!("-----------------");
             println!(
@@ -105,6 +104,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
             );
             println!("Globals: \t\t{:?}", globals);
             println!("Stack: \t\t\t{:?}", stack);
+            std::thread::sleep(Duration::from_millis(20));
         }
 
         let opcode = OpCode::from(unsafe { *instructions.get_unchecked(frame.ip) });
@@ -115,13 +115,32 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 stack.push(obj.clone());
                 frame.ip += 3;
             }
-            OpCode::Pop => {
-                result = pop(&mut stack);
-                frame.ip += 1;
+            OpCode::SetGlobal => {
+                let idx = read_u8_operand!(instructions, frame.ip);
+                let value = pop(&mut stack);
+                globals.push(value);
+                debug_assert_eq!(idx, globals.len() - 1);
+                // globals.insert(idx, value);
+                frame.ip += 2;
             }
-            OpCode::Null => {
-                stack.push(NlObject::Null);
-                frame.ip += 1;
+            OpCode::GetGlobal => {
+                let idx = read_u8_operand!(instructions, frame.ip);
+                let obj = unsafe { globals.get_unchecked(idx) };
+                stack.push(obj.clone());
+                frame.ip += 2;
+            }
+            OpCode::SetLocal => {
+                let idx = read_u8_operand!(instructions, frame.ip);
+                let value = pop(&mut stack);
+                let obj = unsafe { stack.get_unchecked_mut(frame.base_pointer + idx) };
+                *obj = value;
+                frame.ip += 2;
+            }
+            OpCode::GetLocal => {
+                let idx = read_u8_operand!(instructions, frame.ip);
+                let value = unsafe { stack.get_unchecked(frame.base_pointer + idx) };
+                stack.push(value.clone());
+                frame.ip += 2;
             }
             OpCode::Jump => {
                 frame.ip = read_u16_operand!(instructions, frame.ip);
@@ -133,6 +152,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 } else {
                     frame.ip = read_u16_operand!(instructions, frame.ip);
                 }
+            }
+            OpCode::Pop => {
+                result = pop(&mut stack);
+                frame.ip += 1;
+            }
+            OpCode::Null => {
+                stack.push(NlObject::Null);
+                frame.ip += 1;
             }
             OpCode::True => {
                 stack.push(NlObject::Bool(true));
@@ -167,22 +194,6 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 stack.push(result);
                 frame.ip += 1;
             }
-            OpCode::Halt => return Ok(result.clone()),
-            OpCode::ReturnValue => {
-                let result = pop(&mut stack);
-                stack.truncate(frame.base_pointer);
-                stack.push(result);
-                frames.truncate(frames.len() - 1);
-                frame = frames.iter_mut().last().unwrap();
-                frame.ip += 1;
-            }
-            OpCode::Return => {
-                stack.truncate(frame.base_pointer);
-                stack.push(NlObject::Null);
-                frames.truncate(frames.len() - 1);
-                frame = frames.iter_mut().last().unwrap();
-                frame.ip += 1;
-            }
             OpCode::Call => {
                 let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
@@ -200,36 +211,22 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frames.push(Frame::new(ip as usize, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
-            OpCode::SetGlobal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
-                globals.insert(idx, pop(&mut stack));
-                frame.ip += 2;
+            OpCode::ReturnValue => {
+                let result = pop(&mut stack);
+                stack.truncate(frame.base_pointer);
+                stack.push(result);
+                frames.truncate(frames.len() - 1);
+                frame = frames.iter_mut().last().unwrap();
+                frame.ip += 1;
             }
-            OpCode::GetGlobal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
-                let obj = globals.get(idx).unwrap();
-                stack.push(obj.clone());
-                frame.ip += 2;
+            OpCode::Return => {
+                stack.truncate(frame.base_pointer);
+                stack.push(NlObject::Null);
+                frames.truncate(frames.len() - 1);
+                frame = frames.iter_mut().last().unwrap();
+                frame.ip += 1;
             }
-            OpCode::SetLocal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
-                let value = pop(&mut stack);
-                let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
-                *obj = value;
-                frame.ip += 2;
-            }
-            OpCode::GetLocal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
-                let value = stack.get(frame.base_pointer + idx).unwrap();
-                stack.push(value.clone());
-                frame.ip += 2;
-            }
-
-            // This panic! is here to hint the compiler that this path is very unlikely to be taken
-            _ => panic!(
-                "Missing implementation for opcode {:?}",
-                OpCode::from(opcode)
-            ),
+            OpCode::Halt => return Ok(result.clone()),
         }
     }
 }

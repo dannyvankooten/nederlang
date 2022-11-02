@@ -1,6 +1,5 @@
 use crate::ast::BlockStmt;
 use std::fmt::Display;
-use std::ops;
 use std::string::String;
 
 #[derive(Debug, PartialEq)]
