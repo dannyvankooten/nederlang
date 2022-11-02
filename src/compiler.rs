@@ -19,7 +19,7 @@ macro_rules! read_u16_operand {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum OpCode {
     Const = 0,
     Pop,
@@ -111,6 +111,7 @@ pub(crate) struct CompilerScope<'a> {
     symbol_table: &'a mut SymbolTable,
     constants: &'a mut Vec<NlObject>,
     instructions: Vec<u8>,
+    last_instruction: Option<OpCode>,
 }
 
 struct SymbolTable {
@@ -175,23 +176,26 @@ impl<'a> CompilerScope<'a> {
             symbol_table,
             instructions: Vec::with_capacity(64),
             constants,
+            last_instruction: None,
         }
     }
 
-    fn add_instruction(&mut self, operand: OpCode, value: usize) -> usize {
+    fn add_instruction(&mut self, op: OpCode, value: usize) -> usize {
         let bytecode = &mut self.instructions;
         let pos = bytecode.len();
 
-        match operand.num_operands() {
+        // push OpCode itself
+        bytecode.push(op as u8);
+
+        // push operands of OpCode
+        match op.num_operands() {
             // Opcodes with 2 operands (2^16 max value)
             2 => {
-                bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
                 bytecode.push(byte!(value, 1));
             }
             // OpCodes with a single operand (2^8 max value)
             1 => {
-                bytecode.push(operand as u8);
                 bytecode.push(byte!(value, 0));
             }
 
@@ -199,23 +203,20 @@ impl<'a> CompilerScope<'a> {
             0 => {
                 // In case we call add_instruction for an opcode that should have a value, throw a helpful panic here
                 assert_eq!(value, 0);
-                bytecode.push(operand as u8);
             }
 
             _ => panic!("Invalid operand width"),
         }
 
+        // store last instruction so we can match on it
+        self.last_instruction = Some(op);
+
         pos
     }
 
     #[inline]
-    fn current_instructions_len(&self) -> usize {
-        return self.instructions.len();
-    }
-
-    #[inline]
     fn last_instruction_is(&self, op: OpCode) -> bool {
-        self.instructions.iter().last() == Some(&(op as u8))
+        self.last_instruction == Some(op)
     }
 
     #[inline]
@@ -364,7 +365,7 @@ impl<'a> CompilerScope<'a> {
                 self.change_instruction_operand_at(
                     OpCode::JumpIfFalse,
                     pos_jump_before_consequence,
-                    self.current_instructions_len(),
+                    self.instructions.len(),
                 );
 
                 if let Some(alternative) = &expr.alternative {
@@ -378,7 +379,7 @@ impl<'a> CompilerScope<'a> {
                 self.change_instruction_operand_at(
                     OpCode::Jump,
                     pos_jump_after_consequence,
-                    self.current_instructions_len(),
+                    self.instructions.len(),
                 );
             }
             Expr::While(expr) => {
@@ -470,7 +471,6 @@ enum Scope {
 /// This merges b into a (modifying a in place)
 fn merge_instructions(a: &mut Vec<u8>, b: &Vec<u8>) {
     let offset = a.len();
-
     let mut ip = 0;
     while ip < b.len() {
         let opcode = OpCode::from(b[ip]);

@@ -89,6 +89,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
             "Bytecode (human): {:?}",
             bytecode_to_human(&program.instructions)
         );
+        println!("Constants: {:?}", program.constants);
     }
 
     let instructions = program.instructions;
@@ -120,19 +121,16 @@ fn run(program: Program) -> Result<NlObject, Error> {
         #[cfg(debug_assertions)]
         #[cfg(not(test))]
         {
-            println!("Constants: {:?}", constants);
-            println!("Globals: {:?}", globals);
-            println!("Stack: {:?}", stack);
-
+            println!("-----------------");
             println!(
-                "Current instruction: {:?}",
+                "Current instruction: \t{:?}",
                 bytecode_to_human(&instructions[frame.ip..])
                     .split(" ")
                     .next()
                     .unwrap()
             );
-
-            println!();
+            println!("Globals: \t\t{:?}", globals);
+            println!("Stack: \t\t\t{:?}", stack);
         }
 
         let opcode = unsafe { *instructions.get_unchecked(frame.ip) };
@@ -204,7 +202,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 };
 
                 // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals {
+                for _ in 0..num_locals as u8 - num_args as u8 {
                     stack.push(NlObject::Null);
                 }
 
