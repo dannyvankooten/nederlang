@@ -49,8 +49,8 @@ impl Frame {
 }
 
 pub fn run_str(program: &str) -> Result<NlObject, Error> {
-    let ast = parse(program).map_err(Error::SyntaxError)?;
-    let program = Program::new(&ast);
+    let ast = parse(program)?;
+    let program = Program::new(&ast)?;
     run(program)
 }
 

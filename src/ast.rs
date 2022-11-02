@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::lexer::Token;
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
@@ -141,6 +143,23 @@ impl From<Token<'_>> for Operator {
                 "Parsing token {:?} into operator is not implemented.",
                 value
             ),
+        }
+    }
+}
+
+/// We use a string representation of OpCodes to make testing a little easier
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            Expr::Identifier(_) => f.write_str("identifier"),
+            Expr::Bool(_) => f.write_str("boolean"),
+            Expr::Float(_) => f.write_str("float"),
+            Expr::Int(_) => f.write_str("int"),
+            Expr::String(..) => f.write_str("string"),
+            Expr::Function(..) => f.write_str("function"),
+            Expr::Array(..) => f.write_str("array"),
+
+            _ => write!(f, "{:?}", self),
         }
     }
 }

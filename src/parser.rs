@@ -1,5 +1,8 @@
 use crate::ast::*;
 use crate::lexer::{Token, Tokenizer};
+use crate::object::Error;
+
+type ParseError = Error;
 
 /// Token precedence used for Exprs
 /// The order here is important!
@@ -65,6 +68,16 @@ impl<'a> Parser<'a> {
 
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
     fn parse_infix_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
+        match &left {
+            Expr::Function(..) => {
+                return Err(ParseError::TypeError(format!(
+                    "Expression of type {} can not be used in infix expression.",
+                    left
+                )))
+            }
+            _ => (),
+        }
+
         let operator = self.parse_operator();
         let precedence = self.current_token.precedence();
         self.advance();
@@ -107,8 +120,8 @@ impl<'a> Parser<'a> {
         match left {
             Expr::Identifier(_) | Expr::Index(_) => (),
             _ => {
-                return Err(ParseError::new(format!(
-                    "can not assign to expression of type {:?}",
+                return Err(ParseError::TypeError(format!(
+                    "Can not assign to expression of type {}",
                     left
                 )))
             }
@@ -123,7 +136,7 @@ impl<'a> Parser<'a> {
     /// Assert current token is of the given type and skips it
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.current_token != t {
-            return Err(ParseError::new(format!(
+            return Err(ParseError::SyntaxError(format!(
                 "Unexpected token: expected {:?}, got {:?}",
                 t, self.current_token
             )));
@@ -206,8 +219,8 @@ impl<'a> Parser<'a> {
         match func {
             Expr::Identifier(_) | Expr::Function(_, _, _) => {}
             _ => {
-                return Err(ParseError(format!(
-                    "Expression of type {:?} is not callable.",
+                return Err(ParseError::TypeError(format!(
+                    "Expression of type {} is not callable.",
                     func
                 )))
             }
@@ -253,6 +266,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_index_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
+        match &left {
+            Expr::Identifier(_) | Expr::Array(_) | Expr::String(_) => (),
+            _ => {
+                return Err(ParseError::TypeError(format!(
+                    "Expression of type {} is not indexable.",
+                    left
+                )))
+            }
+        }
+
         // skip over Token::OpenBracket
         self.advance();
         let index = self.parse_expr(Precedence::Lowest)?;
@@ -280,7 +303,12 @@ impl<'a> Parser<'a> {
             Token::Func => self.parse_function_expr()?,
             Token::While => self.parse_while_expr()?,
             Token::OpenBracket => self.parse_array_expr()?,
-            _ => todo!("Unsupported expression type: {:?}", self.current_token),
+            _ => {
+                return Err(ParseError::SyntaxError(format!(
+                    "Unsupported expression type: {:?}",
+                    self.current_token
+                )))
+            }
         };
 
         // keep going
@@ -313,7 +341,7 @@ impl<'a> Parser<'a> {
 
         let identifier = match self.current_token {
             Token::Identifier(name) => Ok(name.to_owned()),
-            _ => Err(ParseError::new(format!(
+            _ => Err(ParseError::SyntaxError(format!(
                 "Expected identifier, got {:?}",
                 self.current_token
             ))),
@@ -363,15 +391,6 @@ impl<'a> Parser<'a> {
 
         self.skip(Token::CloseBrace)?;
         Ok(block)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ParseError(String);
-
-impl ParseError {
-    fn new(message: String) -> ParseError {
-        ParseError(message)
     }
 }
 

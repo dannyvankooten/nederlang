@@ -1,6 +1,8 @@
 use std::fmt::Display;
+use std::fmt::Write;
 
 use crate::ast::*;
+use crate::object::Error;
 use crate::object::NlObject;
 
 macro_rules! byte {
@@ -245,22 +247,24 @@ impl<'a> CompilerScope<'a> {
         self.instructions[pos + 2] = byte!(new_value, 1);
     }
 
-    fn compile_block_statement(&mut self, stmts: &[Stmt]) {
+    fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
         for s in stmts {
-            self.compile_statement(s);
+            self.compile_statement(s)?;
         }
+
+        Ok(())
     }
 
-    fn compile_statement(&mut self, stmt: &Stmt) {
+    fn compile_statement(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Expr(expr) => {
-                self.compile_expression(expr);
+                self.compile_expression(expr)?;
                 self.add_instruction(OpCode::Pop, 0);
             }
-            Stmt::Block(stmts) => self.compile_block_statement(stmts),
+            Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
                 let symbol = self.symbol_table.define(name);
-                self.compile_expression(value);
+                self.compile_expression(value)?;
 
                 // TODO: Emit SetLocal if this is a local scope?
                 if symbol.scope == Scope::Global {
@@ -271,10 +275,12 @@ impl<'a> CompilerScope<'a> {
             }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
-                self.compile_expression(expr);
+                self.compile_expression(expr)?;
                 self.add_instruction(OpCode::ReturnValue, 0);
             }
         }
+
+        Ok(())
     }
 
     fn compile_operator(&mut self, operator: &Operator) {
@@ -294,7 +300,7 @@ impl<'a> CompilerScope<'a> {
         self.add_instruction(opcode, 0);
     }
 
-    fn compile_expression(&mut self, expr: &Expr) {
+    fn compile_expression(&mut self, expr: &Expr) -> Result<(), Error> {
         match expr {
             Expr::Bool(expr) => {
                 if expr.value {
@@ -321,19 +327,24 @@ impl<'a> CompilerScope<'a> {
                             self.add_instruction(OpCode::GetLocal, symbol.index);
                         }
                     }
-                    None => panic!("Invalid identifier: {}", name),
+                    None => return Err(Error::ReferenceError(format!("{} is not defined", name))),
                 }
             }
             Expr::Assign(expr) => {
                 let name = match &*expr.left {
                     Expr::Identifier(name) => name,
-                    _ => panic!("Can not assign to expression of type {:?}", expr.left),
+                    _ => {
+                        return Err(Error::TypeError(format!(
+                            "Can not assign to expression of type {:?}",
+                            expr.left
+                        )))
+                    }
                 };
 
                 let symbol = self.symbol_table.resolve(name);
                 match symbol {
                     Some(symbol) => {
-                        self.compile_expression(&expr.right);
+                        self.compile_expression(&expr.right)?;
 
                         if symbol.scope == Scope::Global {
                             // TODO: Create superinstruction for this?
@@ -344,19 +355,19 @@ impl<'a> CompilerScope<'a> {
                             self.add_instruction(OpCode::GetLocal, symbol.index);
                         }
                     }
-                    None => panic!("Invalid identifier: {}", name),
+                    None => return Err(Error::ReferenceError(format!("{} is not defined", name))),
                 }
             }
             Expr::Infix(expr) => {
-                self.compile_expression(&*expr.left);
-                self.compile_expression(&*expr.right);
+                self.compile_expression(&*expr.left)?;
+                self.compile_expression(&*expr.right)?;
                 self.compile_operator(&expr.operator);
             }
             Expr::If(expr) => {
-                self.compile_expression(&expr.condition);
+                self.compile_expression(&expr.condition)?;
                 let pos_jump_before_consequence =
                     self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
-                self.compile_block_statement(&expr.consequence);
+                self.compile_block_statement(&expr.consequence)?;
                 self.remove_last_instruction_if(OpCode::Pop);
 
                 let pos_jump_after_consequence = self.add_instruction(OpCode::Jump, IP_PLACEHOLDER);
@@ -369,7 +380,7 @@ impl<'a> CompilerScope<'a> {
                 );
 
                 if let Some(alternative) = &expr.alternative {
-                    self.compile_block_statement(alternative);
+                    self.compile_block_statement(alternative)?;
                     self.remove_last_instruction_if(OpCode::Pop);
                 } else {
                     self.add_instruction(OpCode::Null, 0);
@@ -385,11 +396,11 @@ impl<'a> CompilerScope<'a> {
             Expr::While(expr) => {
                 self.add_instruction(OpCode::Null, 0);
                 let pos_before_condition = self.instructions.len();
-                self.compile_expression(&expr.condition);
+                self.compile_expression(&expr.condition)?;
 
                 let pos_jump_if_false = self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
                 self.add_instruction(OpCode::Pop, 0);
-                self.compile_block_statement(&expr.body);
+                self.compile_block_statement(&expr.body)?;
 
                 if self.last_instruction_is(OpCode::Pop) {
                     self.remove_last_instruction();
@@ -416,7 +427,7 @@ impl<'a> CompilerScope<'a> {
                     scope.symbol_table.define(p);
                 }
 
-                scope.compile_block_statement(body);
+                scope.compile_block_statement(body)?;
 
                 if scope.last_instruction_is(OpCode::Pop) {
                     scope.replace_last_instruction(OpCode::ReturnValue);
@@ -434,14 +445,16 @@ impl<'a> CompilerScope<'a> {
             }
             Expr::Call(expr) => {
                 for a in &expr.arguments {
-                    self.compile_expression(a);
+                    self.compile_expression(a)?;
                 }
-                self.compile_expression(&expr.left);
+                self.compile_expression(&expr.left)?;
                 self.add_instruction(OpCode::Call, expr.arguments.len());
             }
 
             _ => unimplemented!("Can not yet compile expressions of type {:?}", expr),
         }
+
+        Ok(())
     }
 
     fn add_constant(&mut self, obj: NlObject) -> usize {
@@ -469,12 +482,14 @@ enum Scope {
 
 /// Merge two bytecode vectors, updating any instruction operands that refer to an index (eg OpCode::Jump)
 /// This merges b into a (modifying a in place)
-fn merge_instructions(a: &mut Vec<u8>, b: &Vec<u8>) {
+fn merge_instructions(a: &mut Vec<u8>, b: &[u8]) {
     let offset = a.len();
     let mut ip = 0;
     while ip < b.len() {
         let opcode = OpCode::from(b[ip]);
         match opcode {
+            // Jump instructions have an operand pointing into the bytecode
+            // So we need to update its operands so it points to the new location
             OpCode::Jump | OpCode::JumpIfFalse => {
                 let previous = read_u16_operand!(b, ip);
                 let new = previous + offset;
@@ -484,34 +499,23 @@ fn merge_instructions(a: &mut Vec<u8>, b: &Vec<u8>) {
                 ip += 3;
             }
 
+            // All other instructions can just be copied over
             _ => {
-                let num_operands = opcode.num_operands();
-                match num_operands {
-                    2 => {
-                        a.push(b[ip]);
-                        a.push(b[ip + 1]);
-                        a.push(b[ip + 2]);
-                    }
-                    1 => {
-                        a.push(b[ip]);
-                        a.push(b[ip + 1]);
-                    }
-                    _ => {
-                        a.push(b[ip]);
-                    }
-                }
-                ip += 1 + num_operands;
+                let start = ip;
+                let end = ip + 1 + opcode.num_operands();
+                a.extend(&b[start..end]);
+                ip = end;
             }
         }
     }
 }
 
 impl Program {
-    pub(crate) fn new(ast: &BlockStmt) -> Self {
+    pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
         let mut symbol_table = SymbolTable::new();
         let mut constants = Vec::with_capacity(64);
         let mut scope = CompilerScope::new(&mut constants, &mut symbol_table);
-        scope.compile_block_statement(ast);
+        scope.compile_block_statement(ast)?;
         scope.add_instruction(OpCode::Halt, 0);
 
         let mut instructions = scope.instructions;
@@ -520,8 +524,11 @@ impl Program {
         for c in &mut constants {
             match &c {
                 NlObject::CompiledFunction(func) => {
+                    // this is where we will store the function's instructions
                     let offset = instructions.len();
+
                     merge_instructions(&mut instructions, &func.0);
+
                     // replace object with a simple InstructionPointer
                     *c = NlObject::CompiledFunctionPointer(offset as u16, func.1);
                 }
@@ -533,10 +540,10 @@ impl Program {
         instructions.shrink_to_fit();
         constants.shrink_to_fit();
 
-        Self {
+        Ok(Self {
             constants,
             instructions,
-        }
+        })
     }
 }
 
@@ -582,23 +589,20 @@ pub fn bytecode_to_human(code: &[u8]) -> String {
 
     while ip < code.len() {
         let op = OpCode::from(code[ip]);
+        str.push_str(&op.to_string());
+
         match op.num_operands() {
             // OpCodes with 2 operands:
             2 => {
-                str.push_str(&op.to_string());
-                str.push_str(&format!("({})", read_u16_operand!(code, ip)));
+                write!(str, "({})", read_u16_operand!(code, ip)).unwrap();
             }
 
             // OpCodes with 1 operand:
             1 => {
-                str.push_str(&op.to_string());
-                str.push_str(&format!("({})", code[ip + 1]));
+                write!(str, "({})", code[ip + 1]).unwrap();
             }
 
-            // Single opcode (no operands)
-            _ => {
-                str.push_str(&op.to_string());
-            }
+            _ => (),
         }
 
         ip += 1 + op.num_operands();
@@ -617,7 +621,7 @@ mod tests {
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
-        let program = Program::new(&ast);
+        let program = Program::new(&ast).unwrap();
         bytecode_to_human(&program.instructions)
     }
 

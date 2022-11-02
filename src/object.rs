@@ -1,5 +1,4 @@
 use crate::ast::BlockStmt;
-use crate::parser::ParseError;
 use std::fmt::Display;
 use std::ops;
 use std::string::String;
@@ -7,7 +6,7 @@ use std::string::String;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     TypeError(String),
-    SyntaxError(ParseError),
+    SyntaxError(String),
     ReferenceError(String),
     IndexError(String),
 }
