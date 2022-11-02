@@ -324,6 +324,8 @@ impl<'a> Parser<'a> {
                 | Token::Minus
                 | Token::Slash
                 | Token::Star
+                | Token::And
+                | Token::Or
                 | Token::Percent => self.parse_infix_expr(left)?,
                 Token::Assign => self.parse_assign_expr(left)?,
                 Token::OpenParen => self.parse_call_expr(left)?,
@@ -537,10 +539,7 @@ mod tests {
     #[test]
     fn test_prefix_expressions() {
         for (input, expected_ast) in [
-            (
-                "! ja",
-                ExprPrefix::new(Operator::Negate, ExprBool::new(true)),
-            ),
+            ("! ja", ExprPrefix::new(Operator::Not, ExprBool::new(true))),
             (
                 "-100",
                 ExprPrefix::new(Operator::Subtract, ExprInt::new(100)),

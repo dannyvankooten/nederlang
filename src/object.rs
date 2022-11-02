@@ -63,11 +63,11 @@ impl NlObject {
 impl Display for NlObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NlObject::Bool(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::Bool(v) => f.write_str(if *v { "ja" } else { "nee" }),
             NlObject::Int(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
             NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
-            NlObject::Func(func) => f.write_fmt(format_args!("function {}", func.name)),
+            NlObject::Func(func) => f.write_fmt(format_args!("functie {}", func.name)),
             NlObject::Return(value) => return value.fmt(f),
             NlObject::Array(values) => {
                 f.write_str("[")?;
@@ -87,6 +87,16 @@ impl Display for NlObject {
 }
 
 impl NlObject {
+    #[inline]
+    pub fn and(&self, rhs: &NlObject) -> Result<NlObject, Error> {
+        Ok(NlObject::Bool(self.is_truthy() && rhs.is_truthy()))
+    }
+
+    #[inline]
+    pub fn or(&self, rhs: &NlObject) -> Result<NlObject, Error> {
+        Ok(NlObject::Bool(self.is_truthy() || rhs.is_truthy()))
+    }
+
     #[inline]
     pub(crate) fn add(&self, rhs: &NlObject) -> Result<NlObject, Error> {
         let r = match (&self, &rhs) {
@@ -191,13 +201,9 @@ impl NlObject {
         };
         Ok(r)
     }
-}
-
-impl ops::Not for NlObject {
-    type Output = Result<NlObject, Error>;
 
     #[inline]
-    fn not(self) -> Result<NlObject, Error> {
+    pub fn not(&self) -> Result<NlObject, Error> {
         let r = match self {
             NlObject::Bool(v) => NlObject::Bool(!v),
             _ => {
@@ -210,13 +216,9 @@ impl ops::Not for NlObject {
 
         Ok(r)
     }
-}
-
-impl ops::Neg for NlObject {
-    type Output = Result<NlObject, Error>;
 
     #[inline]
-    fn neg(self) -> Result<NlObject, Error> {
+    pub fn neg(&self) -> Result<NlObject, Error> {
         let r = match self {
             NlObject::Int(v) => NlObject::Int(-v),
             NlObject::Float(v) => NlObject::Float(-v),
@@ -231,6 +233,7 @@ impl ops::Neg for NlObject {
         Ok(r)
     }
 }
+
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
         #[inline]

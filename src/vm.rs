@@ -54,32 +54,6 @@ pub fn run_str(program: &str) -> Result<NlObject, Error> {
     run(program)
 }
 
-const OP_CONST: u8 = OpCode::Const as u8;
-const OP_POP: u8 = OpCode::Pop as u8;
-const OP_NULL: u8 = OpCode::Null as u8;
-const OP_TRUE: u8 = OpCode::True as u8;
-const OP_FALSE: u8 = OpCode::False as u8;
-const OP_GETLOCAL: u8 = OpCode::GetLocal as u8;
-const OP_SETLOCAL: u8 = OpCode::SetLocal as u8;
-const OP_GETGLOBAL: u8 = OpCode::GetGlobal as u8;
-const OP_SETGLOBAL: u8 = OpCode::SetGlobal as u8;
-const OP_CALL: u8 = OpCode::Call as u8;
-const OP_JUMP: u8 = OpCode::Jump as u8;
-const OP_JUMPIFFALSE: u8 = OpCode::JumpIfFalse as u8;
-const OP_ADD: u8 = OpCode::Add as u8;
-const OP_SUBTRACT: u8 = OpCode::Subtract as u8;
-const OP_DIVIDE: u8 = OpCode::Divide as u8;
-const OP_MULTIPLY: u8 = OpCode::Multiply as u8;
-const OP_GT: u8 = OpCode::Gt as u8;
-const OP_GTE: u8 = OpCode::Gte as u8;
-const OP_LT: u8 = OpCode::Lt as u8;
-const OP_LTE: u8 = OpCode::Lte as u8;
-const OP_EQ: u8 = OpCode::Eq as u8;
-const OP_NEQ: u8 = OpCode::Neq as u8;
-const OP_RETURNVALUE: u8 = OpCode::ReturnValue as u8;
-const OP_RETURN: u8 = OpCode::Return as u8;
-const OP_HALT: u8 = OpCode::Halt as u8;
-
 fn run(program: Program) -> Result<NlObject, Error> {
     #[cfg(debug_assertions)]
     #[cfg(not(test))]
@@ -133,26 +107,26 @@ fn run(program: Program) -> Result<NlObject, Error> {
             println!("Stack: \t\t\t{:?}", stack);
         }
 
-        let opcode = unsafe { *instructions.get_unchecked(frame.ip) };
+        let opcode = OpCode::from(unsafe { *instructions.get_unchecked(frame.ip) });
         match opcode {
-            OP_CONST => {
+            OpCode::Const => {
                 let idx = read_u16_operand!(instructions, frame.ip);
                 let obj = unsafe { constants.get_unchecked(idx) };
                 stack.push(obj.clone());
                 frame.ip += 3;
             }
-            OP_POP => {
+            OpCode::Pop => {
                 result = pop(&mut stack);
                 frame.ip += 1;
             }
-            OP_NULL => {
+            OpCode::Null => {
                 stack.push(NlObject::Null);
                 frame.ip += 1;
             }
-            OP_JUMP => {
+            OpCode::Jump => {
                 frame.ip = read_u16_operand!(instructions, frame.ip);
             }
-            OP_JUMPIFFALSE => {
+            OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
                 if condition.is_truthy() {
                     frame.ip += 3;
@@ -160,26 +134,41 @@ fn run(program: Program) -> Result<NlObject, Error> {
                     frame.ip = read_u16_operand!(instructions, frame.ip);
                 }
             }
-            OP_TRUE => {
+            OpCode::True => {
                 stack.push(NlObject::Bool(true));
                 frame.ip += 1;
             }
-            OP_FALSE => {
+            OpCode::False => {
                 stack.push(NlObject::Bool(false));
                 frame.ip += 1;
             }
-            OP_ADD => impl_binary_op_method!(add),
-            OP_SUBTRACT => impl_binary_op_method!(sub),
-            OP_DIVIDE => impl_binary_op_method!(div),
-            OP_MULTIPLY => impl_binary_op_method!(mul),
-            OP_GT => impl_binary_op_method!(gt),
-            OP_GTE => impl_binary_op_method!(gte),
-            OP_LT => impl_binary_op_method!(lt),
-            OP_LTE => impl_binary_op_method!(lte),
-            OP_EQ => impl_binary_op_method!(eq),
-            OP_NEQ => impl_binary_op_method!(neq),
-            OP_HALT => return Ok(result.clone()),
-            OP_RETURNVALUE => {
+            OpCode::Add => impl_binary_op_method!(add),
+            OpCode::Subtract => impl_binary_op_method!(sub),
+            OpCode::Divide => impl_binary_op_method!(div),
+            OpCode::Multiply => impl_binary_op_method!(mul),
+            OpCode::Gt => impl_binary_op_method!(gt),
+            OpCode::Gte => impl_binary_op_method!(gte),
+            OpCode::Lt => impl_binary_op_method!(lt),
+            OpCode::Lte => impl_binary_op_method!(lte),
+            OpCode::Eq => impl_binary_op_method!(eq),
+            OpCode::Neq => impl_binary_op_method!(neq),
+            OpCode::Modulo => impl_binary_op_method!(rem),
+            OpCode::And => impl_binary_op_method!(and),
+            OpCode::Or => impl_binary_op_method!(or),
+            OpCode::Not => {
+                let left = pop(&mut stack);
+                let result = left.not()?;
+                stack.push(result);
+                frame.ip += 1;
+            }
+            OpCode::Negate => {
+                let left = pop(&mut stack);
+                let result = left.neg()?;
+                stack.push(result);
+                frame.ip += 1;
+            }
+            OpCode::Halt => return Ok(result.clone()),
+            OpCode::ReturnValue => {
                 let result = pop(&mut stack);
                 stack.truncate(frame.base_pointer);
                 stack.push(result);
@@ -187,13 +176,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OP_RETURN => {
+            OpCode::Return => {
                 stack.truncate(frame.base_pointer);
+                stack.push(NlObject::Null);
                 frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OP_CALL => {
+            OpCode::Call => {
                 let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
                 let (ip, num_locals) = match pop(&mut stack) {
@@ -210,25 +200,25 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frames.push(Frame::new(ip as usize, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
             }
-            OP_SETGLOBAL => {
+            OpCode::SetGlobal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 globals.insert(idx, pop(&mut stack));
                 frame.ip += 2;
             }
-            OP_GETGLOBAL => {
+            OpCode::GetGlobal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let obj = globals.get(idx).unwrap();
                 stack.push(obj.clone());
                 frame.ip += 2;
             }
-            OP_SETLOCAL => {
+            OpCode::SetLocal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
                 let obj = stack.get_mut(frame.base_pointer + idx).unwrap();
                 *obj = value;
                 frame.ip += 2;
             }
-            OP_GETLOCAL => {
+            OpCode::GetLocal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let value = stack.get(frame.base_pointer + idx).unwrap();
                 stack.push(value.clone());
@@ -363,5 +353,28 @@ mod tests {
             run_str("(functie (a) { a() })(functie() { 100 });"),
             Ok(NlObject::Int(100))
         );
+    }
+
+    #[test]
+    fn test_logical_andor() {
+        assert_eq!(run_str("ja en ja"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("ja en nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee en nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee of nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee of ja"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("1 > 0 of 0 > 1"), Ok(NlObject::Bool(true)));
+    }
+
+    #[test]
+    fn test_negating_values() {
+        assert_eq!(run_str("-1"), Ok(NlObject::Int(-1)));
+        assert_eq!(run_str("-1.00"), Ok(NlObject::Float(-1.00)));
+    }
+
+    #[test]
+    fn test_not_values() {
+        assert_eq!(run_str("!ja"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("!nee"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("!!nee"), Ok(NlObject::Bool(false)));
     }
 }

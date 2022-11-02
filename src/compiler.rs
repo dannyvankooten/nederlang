@@ -37,6 +37,11 @@ pub(crate) enum OpCode {
     Lte,
     Eq,
     Neq,
+    And,
+    Or,
+    Not,
+    Modulo,
+    Negate,
     Jump,
     JumpIfFalse,
     Null,
@@ -54,7 +59,7 @@ const IP_PLACEHOLDER: usize = 99999;
 
 /// Lookup table for quickly converting from u8 to OpCode variant
 /// The order here is significant!
-static U8_TO_OPCODE_MAP: [OpCode; 25] = [
+static U8_TO_OPCODE_MAP: [OpCode; 30] = [
     OpCode::Const,
     OpCode::Pop,
     OpCode::True,
@@ -69,6 +74,11 @@ static U8_TO_OPCODE_MAP: [OpCode; 25] = [
     OpCode::Lte,
     OpCode::Eq,
     OpCode::Neq,
+    OpCode::And,
+    OpCode::Or,
+    OpCode::Not,
+    OpCode::Modulo,
+    OpCode::Negate,
     OpCode::Jump,
     OpCode::JumpIfFalse,
     OpCode::Null,
@@ -295,6 +305,11 @@ impl<'a> CompilerScope<'a> {
             Operator::Lte => OpCode::Lte,
             Operator::Eq => OpCode::Eq,
             Operator::Neq => OpCode::Neq,
+            Operator::Modulo => OpCode::Modulo,
+            Operator::Not => OpCode::Not,
+            Operator::Negate => OpCode::Negate,
+            Operator::And => OpCode::And,
+            Operator::Or => OpCode::Or,
             _ => unimplemented!("Operators of type {:?} not yet implemented.", operator),
         };
         self.add_instruction(opcode, 0);
@@ -328,6 +343,20 @@ impl<'a> CompilerScope<'a> {
                         }
                     }
                     None => return Err(Error::ReferenceError(format!("{} is not defined", name))),
+                }
+            }
+            Expr::Prefix(expr) => {
+                self.compile_expression(&expr.right)?;
+
+                match expr.operator {
+                    Operator::Negate | Operator::Subtract => {
+                        self.add_instruction(OpCode::Negate, 0);
+                    }
+                    Operator::Not => {
+                        self.add_instruction(OpCode::Not, 0);
+                    }
+
+                    _ => return Err(Error::TypeError(format!(""))),
                 }
             }
             Expr::Assign(expr) => {
@@ -565,6 +594,11 @@ impl Display for OpCode {
             OpCode::Lte => f.write_str("Lte"),
             OpCode::Eq => f.write_str("Eq"),
             OpCode::Neq => f.write_str("Neq"),
+            OpCode::And => f.write_str("And"),
+            OpCode::Or => f.write_str("Or"),
+            OpCode::Not => f.write_str("Not"),
+            OpCode::Modulo => f.write_str("Modulo"),
+            OpCode::Negate => f.write_str("Negate"),
             OpCode::Jump => f.write_str("Jump"),
             OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
             OpCode::Null => f.write_str("Null"),

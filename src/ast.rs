@@ -114,6 +114,7 @@ pub enum Operator {
     Lte,
     Eq,
     Neq,
+    Not,
     Negate,
     And,
     Or,
@@ -137,7 +138,7 @@ impl From<Token<'_>> for Operator {
             Token::Lte => Operator::Lte,
             Token::Eq => Operator::Eq,
             Token::Neq => Operator::Neq,
-            Token::Bang => Operator::Negate,
+            Token::Bang => Operator::Not,
             Token::Assign => Operator::Assign,
             _ => unimplemented!(
                 "Parsing token {:?} into operator is not implemented.",
