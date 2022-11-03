@@ -373,6 +373,14 @@ impl<'a> Parser<'a> {
             Token::Declare => self.parse_decl_statement()?,
             Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
             Token::Return => self.parse_return_statement()?,
+            Token::Continue => {
+                self.advance();
+                Stmt::Continue
+            }
+            Token::Break => {
+                self.advance();
+                Stmt::Break
+            }
             _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
         };
 

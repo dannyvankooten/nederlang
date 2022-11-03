@@ -118,9 +118,11 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::SetGlobal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
-                globals.push(value);
-                debug_assert_eq!(idx, globals.len() - 1);
-                // globals.insert(idx, value);
+                while globals.len() <= idx {
+                    globals.push(NlObject::Null);
+                }
+
+                globals[idx] = value;
                 frame.ip += 2;
             }
             OpCode::GetGlobal => {
@@ -132,8 +134,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::SetLocal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
-                let obj = unsafe { stack.get_unchecked_mut(frame.base_pointer + idx) };
-                *obj = value;
+                stack[frame.base_pointer + idx] = value;
                 frame.ip += 2;
             }
             OpCode::GetLocal => {
@@ -373,5 +374,18 @@ mod tests {
         assert_eq!(run_str("!ja"), Ok(NlObject::Bool(false)));
         assert_eq!(run_str("!nee"), Ok(NlObject::Bool(true)));
         assert_eq!(run_str("!!nee"), Ok(NlObject::Bool(false)));
+    }
+
+    #[test]
+    fn test_break_statement() {
+        assert_eq!(
+            run_str("stel a = 0; zolang a < 10 { a = a + 1; als a == 5 { stop } } a"),
+            Ok(NlObject::Int(5))
+        );
+    }
+
+    #[test]
+    fn test_continue_statement() {
+        assert_eq!(run_str("stel i = 0; stel a = 2; zolang i < 10 { i = i + 1; als i >= 5 { volgende; } a = a * 2; } a"), Ok(NlObject::Int(32)));
     }
 }

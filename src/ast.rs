@@ -8,8 +8,8 @@ pub enum Stmt {
     Return(Expr),
     Expr(Expr),
     Block(BlockStmt),
-    // Break,
-    // Continue,
+    Break,
+    Continue,
 }
 
 pub type BlockStmt = Vec<Stmt>;

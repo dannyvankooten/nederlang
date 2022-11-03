@@ -11,7 +11,7 @@ pub(crate) enum Token<'a> {
     // Keywords
     /// "als"
     If,
-    /// "zoniet"
+    /// "anders"
     Else,
     /// "antwoord"
     Return,
@@ -23,14 +23,16 @@ pub(crate) enum Token<'a> {
     And,
     /// "of"
     Or,
-    /// "voorelk"
-    Foreach,
     /// "stel"
     Declare,
     /// "waar"
     True,
     /// "onwaar"
     False,
+    /// "stop"
+    Break,
+    /// "volgende"
+    Continue,
 
     // Multi-char tokens:
     /// "<="
@@ -164,7 +166,6 @@ impl<'a> From<&'a str> for Token<'a> {
             "als" => If,
             "of" => Or,
             "antwoord" => Return,
-            "voorelk" => Foreach,
             "zolang" => While,
             "anders" => Else,
             "functie" => Func,
@@ -172,6 +173,8 @@ impl<'a> From<&'a str> for Token<'a> {
             "en" => And,
             "ja" => True,
             "nee" => False,
+            "volgende" => Continue,
+            "stop" => Break,
             _ => Identifier(value),
         }
     }
@@ -404,15 +407,16 @@ mod tests {
 
     #[test]
     fn tokenize_keywords() {
-        let mut tokenizer = Tokenizer::new("als anders voorelk en of antwoord functie stel");
+        let mut tokenizer = Tokenizer::new("als anders en of antwoord functie stel stop volgende");
         assert_eq!(tokenizer.next(), Some(If));
         assert_eq!(tokenizer.next(), Some(Else));
-        assert_eq!(tokenizer.next(), Some(Foreach));
         assert_eq!(tokenizer.next(), Some(And));
         assert_eq!(tokenizer.next(), Some(Or));
         assert_eq!(tokenizer.next(), Some(Return));
         assert_eq!(tokenizer.next(), Some(Func));
         assert_eq!(tokenizer.next(), Some(Declare));
+        assert_eq!(tokenizer.next(), Some(Break));
+        assert_eq!(tokenizer.next(), Some(Continue));
         assert_eq!(tokenizer.next(), None);
     }
 

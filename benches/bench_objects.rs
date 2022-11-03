@@ -1,8 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use nederlang::{
-    self,
-    object::{NlObject, NlObjectInt},
-};
+use nederlang::{self, object::NlObject};
 
 #[derive(Copy, Clone)]
 pub enum Type {
@@ -18,8 +15,8 @@ pub struct Object<'a> {
 pub union Value<'a> {
     int: i64,
     float: f64,
-    bool: bool,
-    string: &'a str,
+    _bool: bool,
+    _string: &'a str,
 }
 
 fn add_ints<'a>(a: &Object<'_>, b: &Object<'_>) -> Object<'a> {
@@ -50,9 +47,7 @@ fn add_objects_unknown_types<'a>(a: &Object<'_>, b: &Object<'_>) -> Object<'a> {
 
 fn add_objects(a: &NlObject, b: &NlObject) -> NlObject {
     match (a, b) {
-        (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(NlObjectInt {
-            value: a.value + b.value,
-        }),
+        (NlObject::Int(a), NlObject::Int(b)) => NlObject::Int(a + b),
         (NlObject::Float(a), NlObject::Float(b)) => NlObject::Float(a + b),
         _ => panic!("Not implemented."),
     }
@@ -78,8 +73,8 @@ fn bench_objects(c: &mut Criterion) {
             b.iter(|| add_objects_unknown_types(&obj_a, &obj_b))
         });
 
-        let obj_a = NlObject::Int(NlObjectInt { value: *i });
-        let obj_b = NlObject::Int(NlObjectInt { value: *i + 1 });
+        let obj_a = NlObject::Int(*i);
+        let obj_b = NlObject::Int(*i + 1);
         group.bench_function(BenchmarkId::new("Enum", i), |b| {
             b.iter(|| add_objects(&obj_a, &obj_b))
         });

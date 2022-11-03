@@ -56,6 +56,8 @@ pub(crate) enum OpCode {
 }
 
 const IP_PLACEHOLDER: usize = 99999;
+const JUMP_PLACEHOLDER_BREAK: usize = 9999 + 1;
+const JUMP_PLACEHOLDER_CONTINUE: usize = 9999 + 2;
 
 /// Lookup table for quickly converting from u8 to OpCode variant
 /// The order here is significant!
@@ -124,6 +126,8 @@ pub(crate) struct CompilerScope<'a> {
     constants: &'a mut Vec<NlObject>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
+    tmp_break_stmt: Option<usize>,
+    tmp_continue_stmt: Option<usize>,
 }
 
 struct SymbolTable {
@@ -189,6 +193,8 @@ impl<'a> CompilerScope<'a> {
             instructions: Vec::with_capacity(64),
             constants,
             last_instruction: None,
+            tmp_break_stmt: None,
+            tmp_continue_stmt: None,
         }
     }
 
@@ -287,6 +293,16 @@ impl<'a> CompilerScope<'a> {
                 // TODO: Allow expression to be omitted (needs work in parser first)
                 self.compile_expression(expr)?;
                 self.add_instruction(OpCode::ReturnValue, 0);
+            }
+            Stmt::Break => {
+                self.add_instruction(OpCode::Null, 0);
+                let ip = self.add_instruction(OpCode::Jump, JUMP_PLACEHOLDER_BREAK);
+                self.tmp_break_stmt = Some(ip);
+            }
+            Stmt::Continue => {
+                self.add_instruction(OpCode::Null, 0);
+                let ip = self.add_instruction(OpCode::Jump, JUMP_PLACEHOLDER_CONTINUE);
+                self.tmp_continue_stmt = Some(ip);
             }
         }
 
@@ -437,8 +453,11 @@ impl<'a> CompilerScope<'a> {
                     self.add_instruction(OpCode::Null, 0);
                 }
 
-                // jump back to condition
                 self.add_instruction(OpCode::Jump, pos_before_condition);
+
+                // End of the statement's body
+                // This is where we should jump to if condition evaluated to false
+                // Or when the body had a Stmt::Break
                 let pos_after_body = self.instructions.len();
                 self.change_instruction_operand_at(
                     OpCode::JumpIfFalse,
@@ -446,7 +465,14 @@ impl<'a> CompilerScope<'a> {
                     pos_after_body,
                 );
 
-                // TODO: Add support for break & continue
+                if let Some(pos) = self.tmp_break_stmt {
+                    self.change_instruction_operand_at(OpCode::Jump, pos, pos_after_body);
+                    self.tmp_break_stmt = None;
+                }
+                if let Some(pos) = self.tmp_continue_stmt {
+                    self.change_instruction_operand_at(OpCode::Jump, pos, pos_before_condition);
+                    self.tmp_continue_stmt = None;
+                }
             }
             Expr::Function(_name, parameters, body) => {
                 // Compile function in a new scope
