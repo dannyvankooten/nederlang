@@ -59,45 +59,10 @@ const IP_PLACEHOLDER: usize = 99999;
 const JUMP_PLACEHOLDER_BREAK: usize = 9999 + 1;
 const JUMP_PLACEHOLDER_CONTINUE: usize = 9999 + 2;
 
-/// Lookup table for quickly converting from u8 to OpCode variant
-/// The order here is significant!
-static U8_TO_OPCODE_MAP: [OpCode; 30] = [
-    OpCode::Const,
-    OpCode::Pop,
-    OpCode::True,
-    OpCode::False,
-    OpCode::Add,
-    OpCode::Subtract,
-    OpCode::Divide,
-    OpCode::Multiply,
-    OpCode::Gt,
-    OpCode::Gte,
-    OpCode::Lt,
-    OpCode::Lte,
-    OpCode::Eq,
-    OpCode::Neq,
-    OpCode::And,
-    OpCode::Or,
-    OpCode::Not,
-    OpCode::Modulo,
-    OpCode::Negate,
-    OpCode::Jump,
-    OpCode::JumpIfFalse,
-    OpCode::Null,
-    OpCode::Return,
-    OpCode::ReturnValue,
-    OpCode::Call,
-    OpCode::GetLocal,
-    OpCode::SetLocal,
-    OpCode::GetGlobal,
-    OpCode::SetGlobal,
-    OpCode::Halt,
-];
-
 impl From<u8> for OpCode {
-    #[inline]
+    #[inline(always)]
     fn from(value: u8) -> Self {
-        unsafe { return *U8_TO_OPCODE_MAP.get_unchecked(value as usize) }
+        unsafe { std::mem::transmute(value) }
     }
 }
 
