@@ -1,5 +1,5 @@
 mod ast;
-mod builtins;
+// mod builtins;
 mod compiler;
 mod lexer;
 pub mod object;

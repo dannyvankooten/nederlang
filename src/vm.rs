@@ -1,8 +1,12 @@
-use crate::compiler::{bytecode_to_human, OpCode, Program};
+use crate::compiler::{OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
 use std::ptr;
+
+#[cfg(feature = "debug")]
+use crate::compiler::bytecode_to_human;
+#[cfg(feature = "debug")]
 use std::time::Duration;
 
 macro_rules! read_u8_operand {
@@ -33,7 +37,7 @@ struct Frame {
 /// This yields a ~25% performance improvement. Removing any of the other bound check do not yield significant performance improvements.
 /// So here we choose to only use a custom method for pop().
 #[inline]
-fn pop(slice: &mut Vec<NlObject>) -> NlObject {
+fn pop<'a>(slice: &mut Vec<NlObject>) -> NlObject {
     // Safety: slice is never empty, opcodes that push items on the stack always come before anything that pops
     unsafe {
         let new_len = slice.len() - 1;
@@ -88,7 +92,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
     }
 
     if instructions.is_empty() {
-        return Ok(result.clone());
+        return Ok(result);
     }
 
     loop {
@@ -111,8 +115,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
         match opcode {
             OpCode::Const => {
                 let idx = read_u16_operand!(instructions, frame.ip);
-                let obj = unsafe { constants.get_unchecked(idx) };
-                stack.push(obj.clone());
+                stack.push(constants[idx]);
                 frame.ip += 3;
             }
             OpCode::SetGlobal => {
@@ -121,14 +124,12 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 while globals.len() <= idx {
                     globals.push(NlObject::Null);
                 }
-
                 globals[idx] = value;
                 frame.ip += 2;
             }
             OpCode::GetGlobal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
-                let obj = unsafe { globals.get_unchecked(idx) };
-                stack.push(obj.clone());
+                stack.push(globals[idx]);
                 frame.ip += 2;
             }
             OpCode::SetLocal => {
@@ -139,10 +140,10 @@ fn run(program: Program) -> Result<NlObject, Error> {
             }
             OpCode::GetLocal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
-                let value = unsafe { stack.get_unchecked(frame.base_pointer + idx) };
-                stack.push(value.clone());
+                stack.push(stack[frame.base_pointer + idx]);
                 frame.ip += 2;
             }
+            // TODO: Make these opcodes relative
             OpCode::Jump => {
                 frame.ip = read_u16_operand!(instructions, frame.ip);
             }
@@ -227,7 +228,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OpCode::Halt => return Ok(result.clone()),
+            OpCode::Halt => return Ok(result),
         }
     }
 }

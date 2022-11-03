@@ -124,6 +124,7 @@ impl OpCode {
 pub(crate) struct CompilerScope<'a> {
     symbol_table: &'a mut SymbolTable,
     constants: &'a mut Vec<NlObject>,
+    functions: &'a mut Vec<Vec<u8>>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
     tmp_break_stmt: Option<usize>,
@@ -187,11 +188,16 @@ impl SymbolTable {
 
 impl<'a> CompilerScope<'a> {
     /// Creates a new compiler scope to compile in
-    fn new(constants: &'a mut Vec<NlObject>, symbol_table: &'a mut SymbolTable) -> Self {
+    fn new(
+        constants: &'a mut Vec<NlObject>,
+        symbol_table: &'a mut SymbolTable,
+        functions: &'a mut Vec<Vec<u8>>,
+    ) -> Self {
         CompilerScope {
             symbol_table,
             instructions: Vec::with_capacity(64),
             constants,
+            functions,
             last_instruction: None,
             tmp_break_stmt: None,
             tmp_continue_stmt: None,
@@ -476,26 +482,27 @@ impl<'a> CompilerScope<'a> {
             }
             Expr::Function(_name, parameters, body) => {
                 // Compile function in a new scope
-                let mut scope = CompilerScope::new(self.constants, self.symbol_table);
-                scope.symbol_table.enter_scope();
+                self.symbol_table.enter_scope();
                 for p in parameters {
-                    scope.symbol_table.define(p);
+                    self.symbol_table.define(p);
                 }
 
-                scope.compile_block_statement(body)?;
+                let pos_start_function = self.instructions.len();
 
-                if scope.last_instruction_is(OpCode::Pop) {
-                    scope.replace_last_instruction(OpCode::ReturnValue);
-                } else if !scope.last_instruction_is(OpCode::ReturnValue) {
-                    scope.add_instruction(OpCode::Return, 0);
+                self.compile_block_statement(body)?;
+
+                if self.last_instruction_is(OpCode::Pop) {
+                    self.replace_last_instruction(OpCode::ReturnValue);
+                } else if !self.last_instruction_is(OpCode::ReturnValue) {
+                    self.add_instruction(OpCode::Return, 0);
                 }
-
-                let num_locals = scope.symbol_table.leave_scope() as u8;
-                let instructions = scope.instructions;
-                let idx = self.add_constant(NlObject::CompiledFunction(Box::new((
-                    instructions,
+                let num_locals = self.symbol_table.leave_scope() as u8;
+                self.functions
+                    .push(self.instructions.drain(pos_start_function..).collect());
+                let idx = self.add_constant(NlObject::CompiledFunctionPointer(
+                    (self.functions.len() - 1) as u16,
                     num_locals,
-                ))));
+                ));
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Call(expr) => {
@@ -568,24 +575,24 @@ fn merge_instructions(a: &mut Vec<u8>, b: &[u8]) {
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
         let mut symbol_table = SymbolTable::new();
+        let mut functions = Vec::<Vec<u8>>::new();
         let mut constants = Vec::with_capacity(64);
-        let mut scope = CompilerScope::new(&mut constants, &mut symbol_table);
+        let mut scope = CompilerScope::new(&mut constants, &mut symbol_table, &mut functions);
         scope.compile_block_statement(ast)?;
         scope.add_instruction(OpCode::Halt, 0);
 
-        let mut instructions = scope.instructions;
-
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
+        let mut instructions = scope.instructions;
         for c in &mut constants {
-            match &c {
-                NlObject::CompiledFunction(func) => {
+            match c {
+                NlObject::CompiledFunctionPointer(index, num_locals) => {
                     // this is where we will store the function's instructions
                     let offset = instructions.len();
 
-                    merge_instructions(&mut instructions, &func.0);
+                    merge_instructions(&mut instructions, &functions[*index as usize]);
 
                     // replace object with a simple InstructionPointer
-                    *c = NlObject::CompiledFunctionPointer(offset as u16, func.1);
+                    *c = NlObject::CompiledFunctionPointer(offset as u16, *num_locals);
                 }
                 _ => (),
             }
