@@ -17,10 +17,8 @@ macro_rules! read_u8_operand {
 
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
-        unsafe {
-            (*$instructions.get_unchecked($ip + 1) as usize)
-                + ((*$instructions.get_unchecked($ip + 2) as usize) << 8)
-        }
+        read_u8_operand!($instructions, $ip)
+            + unsafe { ((*$instructions.get_unchecked($ip + 2) as usize) << 8) }
     };
 }
 
@@ -34,10 +32,12 @@ struct Frame {
 }
 
 /// Vec::pop, but without checking if it's empty first.
-/// This yields a ~25% performance improvement. Removing any of the other bound check do not yield significant performance improvements.
-/// So here we choose to only use a custom method for pop().
+/// This yields a ~25% performance improvement.
+/// As an aside, removing any of the other bound check related to working with the stack does not seen to yield significant performance improvements.
 #[inline]
-fn pop<'a>(slice: &mut Vec<NlObject>) -> NlObject {
+fn pop(slice: &mut Vec<NlObject>) -> NlObject {
+    debug_assert!(slice.len() > 0);
+
     // Safety: slice is never empty, opcodes that push items on the stack always come before anything that pops
     unsafe {
         let new_len = slice.len() - 1;
@@ -111,7 +111,8 @@ fn run(program: Program) -> Result<NlObject, Error> {
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        let opcode = OpCode::from(unsafe { *instructions.get_unchecked(frame.ip) });
+        debug_assert!(instructions.len() > frame.ip);
+        let opcode = unsafe { OpCode::from(*instructions.get_unchecked(frame.ip)) };
         match opcode {
             OpCode::Const => {
                 let idx = read_u16_operand!(instructions, frame.ip);
@@ -140,10 +141,11 @@ fn run(program: Program) -> Result<NlObject, Error> {
             }
             OpCode::GetLocal => {
                 let idx = read_u8_operand!(instructions, frame.ip);
-                stack.push(stack[frame.base_pointer + idx]);
+                debug_assert!(stack.len() > frame.base_pointer + idx);
+                stack.push(unsafe { *stack.get_unchecked(frame.base_pointer + idx) });
                 frame.ip += 2;
             }
-            // TODO: Make these opcodes relative
+            // TODO: Make JUMP* opcodes relative
             OpCode::Jump => {
                 frame.ip = read_u16_operand!(instructions, frame.ip);
             }
