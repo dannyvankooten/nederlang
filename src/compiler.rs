@@ -52,8 +52,17 @@ pub(crate) enum OpCode {
     SetLocal,
     GetGlobal,
     SetGlobal,
+    GtLocalConst,
+    GteLocalConst,
     LtLocalConst,
+    LteLocalConst,
+    EqLocalConst,
+    NeqLocalConst,
+    AddLocalConst,
     SubtractLocalConst,
+    MultiplyLocalConst,
+    DivideLocalConst,
+    ModuloLocalConst,
     Halt,
 }
 
@@ -76,8 +85,19 @@ impl OpCode {
             OpCode::Const
             | OpCode::Jump
             | OpCode::JumpIfFalse
+
+            // TODO: The following should ideally have 2 operands of 2 bytes each
+            | OpCode::GtLocalConst
+            | OpCode::GteLocalConst
+            | OpCode::LtLocalConst
+            | OpCode::LteLocalConst
+            | OpCode::EqLocalConst
+            | OpCode::NeqLocalConst
+            | OpCode::AddLocalConst
             | OpCode::SubtractLocalConst
-            | OpCode::LtLocalConst => 2,
+            | OpCode::MultiplyLocalConst
+            | OpCode::DivideLocalConst
+            | OpCode::ModuloLocalConst => 2,
 
             // OpCodes with 1 operand:
             OpCode::Call
@@ -327,11 +347,22 @@ impl Compiler {
         match symbol {
             Some(symbol) => {
                 let op = match (operator, symbol.scope) {
+                    (Operator::Add, Scope::Local) => OpCode::AddLocalConst,
                     (Operator::Subtract, Scope::Local) => OpCode::SubtractLocalConst,
                     (Operator::Lt, Scope::Local) => OpCode::LtLocalConst,
-                    _ => return Err(Error::ReferenceError(format!(
+                    (Operator::Lte, Scope::Local) => OpCode::LteLocalConst,
+                    (Operator::Gt, Scope::Local) => OpCode::GtLocalConst,
+                    (Operator::Gte, Scope::Local) => OpCode::GteLocalConst,
+                    (Operator::Eq, Scope::Local) => OpCode::EqLocalConst,
+                    (Operator::Neq, Scope::Local) => OpCode::NeqLocalConst,
+                    (Operator::Multiply, Scope::Local) => OpCode::MultiplyLocalConst,
+                    (Operator::Divide, Scope::Local) => OpCode::DivideLocalConst,
+                    (Operator::Modulo, Scope::Local) => OpCode::ModuloLocalConst,
+                    _ => {
+                        return Err(Error::ReferenceError(format!(
                         "Optimized variant of this operator & scope type is not yet implemented."
-                    ))),
+                    )))
+                    }
                 };
                 self.instructions.push(op as u8);
                 self.instructions.push(symbol.index as u8);
@@ -639,8 +670,17 @@ impl Display for OpCode {
             OpCode::SetLocal => f.write_str("SetLocal"),
             OpCode::GetGlobal => f.write_str("GetGlobal"),
             OpCode::SetGlobal => f.write_str("SetGlobal"),
-            OpCode::SubtractLocalConst => f.write_str("SubtractLocalConst"),
+            OpCode::GtLocalConst => f.write_str("GtLocalConst"),
+            OpCode::GteLocalConst => f.write_str("GteLocalConst"),
             OpCode::LtLocalConst => f.write_str("LtLocalConst"),
+            OpCode::LteLocalConst => f.write_str("LteLocalConst"),
+            OpCode::EqLocalConst => f.write_str("EqLocalConst"),
+            OpCode::NeqLocalConst => f.write_str("NeqLocalConst"),
+            OpCode::AddLocalConst => f.write_str("AddLocalConst"),
+            OpCode::SubtractLocalConst => f.write_str("SubtractLocalConst"),
+            OpCode::MultiplyLocalConst => f.write_str("MultiplyLocalConst"),
+            OpCode::DivideLocalConst => f.write_str("DivideLocalConst"),
+            OpCode::ModuloLocalConst => f.write_str("ModuloLocalConst"),
             OpCode::Halt => f.write_str("Halt"),
         }
     }

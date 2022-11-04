@@ -91,6 +91,15 @@ fn run(program: Program) -> Result<NlObject, Error> {
         }};
     }
 
+    macro_rules! impl_binary_const_local_op_method {
+        ($op:tt) => {{
+            let left = stack[frame.base_pointer + read_u8_operand!(instructions, frame.ip)];
+            let right = constants[read_u8_operand!(instructions, frame.ip + 1)];
+            stack.push(left.$op(&right)?);
+            frame.ip += 3;
+        }};
+    }
+
     if instructions.is_empty() {
         return Ok(result);
     }
@@ -230,30 +239,17 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
-            OpCode::LtLocalConst => {
-                let left = unsafe {
-                    stack.get_unchecked(
-                        frame.base_pointer + read_u8_operand!(instructions, frame.ip),
-                    )
-                };
-                let right = unsafe {
-                    constants.get_unchecked(read_u8_operand!(instructions, (frame.ip + 1)))
-                };
-                stack.push(left.lt(&right)?);
-                frame.ip += 3;
-            }
-            OpCode::SubtractLocalConst => {
-                let left = unsafe {
-                    stack.get_unchecked(
-                        frame.base_pointer + read_u8_operand!(instructions, frame.ip),
-                    )
-                };
-                let right = unsafe {
-                    constants.get_unchecked(read_u8_operand!(instructions, (frame.ip + 1)))
-                };
-                stack.push(left.sub(&right)?);
-                frame.ip += 3;
-            }
+            OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
+            OpCode::GteLocalConst => impl_binary_const_local_op_method!(gte),
+            OpCode::LtLocalConst => impl_binary_const_local_op_method!(lt),
+            OpCode::LteLocalConst => impl_binary_const_local_op_method!(lte),
+            OpCode::EqLocalConst => impl_binary_const_local_op_method!(eq),
+            OpCode::NeqLocalConst => impl_binary_const_local_op_method!(neq),
+            OpCode::AddLocalConst => impl_binary_const_local_op_method!(add),
+            OpCode::SubtractLocalConst => impl_binary_const_local_op_method!(sub),
+            OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
+            OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
+            OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
             OpCode::Halt => return Ok(result),
         }
     }
