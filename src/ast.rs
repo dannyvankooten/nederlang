@@ -160,7 +160,7 @@ impl Display for Expr {
             Expr::Function(..) => f.write_str("function"),
             Expr::Array(..) => f.write_str("array"),
 
-            _ => write!(f, "{:?}", self),
+            _ => write!(f, "{self:?}"),
         }
     }
 }
@@ -207,7 +207,7 @@ impl ExprCall {
     pub fn new(func: Expr, arguments: Vec<Expr>) -> Expr {
         Expr::Call(ExprCall {
             left: Box::new(func),
-            arguments: arguments,
+            arguments,
         })
     }
 }

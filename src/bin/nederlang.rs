@@ -1,12 +1,12 @@
-use std::fs;
-use std::io::{self, Write};
-use std::path::Path;
-use std::env::args;
-#[cfg(feature = "debug")]
-use std::mem::size_of;
 #[cfg(feature = "debug")]
 use nederlang::object::NlObject;
 use nederlang::vm::run_str;
+use std::env::args;
+use std::fs;
+use std::io::{self, Write};
+#[cfg(feature = "debug")]
+use std::mem::size_of;
+use std::path::Path;
 
 fn run_repl() {
     let mut buffer = String::with_capacity(512);
@@ -17,8 +17,8 @@ fn run_repl() {
         io::stdin().read_line(&mut buffer).unwrap();
 
         match run_str(&buffer) {
-            Ok(obj) => println!("{}", obj),
-            Err(e) => eprintln!("{:?}", e),
+            Ok(obj) => println!("{obj}"),
+            Err(e) => eprintln!("{e:?}"),
         }
     }
 }
@@ -27,8 +27,8 @@ fn run_file(f: &Path) {
     let program = fs::read_to_string(f).unwrap();
 
     match run_str(&program) {
-        Ok(obj) => println!("{}", obj),
-        Err(e) => eprintln!("{:?}", e),
+        Ok(obj) => println!("{obj}"),
+        Err(e) => eprintln!("{e:?}"),
     }
 }
 

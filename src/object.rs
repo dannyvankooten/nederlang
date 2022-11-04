@@ -37,8 +37,8 @@ impl Display for NlObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NlObject::Bool(v) => f.write_str(if *v { "ja" } else { "nee" }),
-            NlObject::Int(v) => f.write_fmt(format_args!("{}", v)),
-            NlObject::Float(v) => f.write_fmt(format_args!("{}", v)),
+            NlObject::Int(v) => f.write_fmt(format_args!("{v}")),
+            NlObject::Float(v) => f.write_fmt(format_args!("{v}")),
             // NlObject::String(v) => f.write_fmt(format_args!("{}", v)),
             // NlObject::Func(func) => f.write_fmt(format_args!("functie {}", func.name)),
             // NlObject::Return(value) => return value.fmt(f),

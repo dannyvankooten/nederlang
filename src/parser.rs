@@ -71,8 +71,7 @@ impl<'a> Parser<'a> {
         match &left {
             Expr::Function(..) => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {} can not be used in infix expression.",
-                    left
+                    "Expression of type {left} can not be used in infix expression."
                 )))
             }
             _ => (),
@@ -121,8 +120,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Index(_) => (),
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Can not assign to expression of type {}",
-                    left
+                    "Can not assign to expression of type {left}"
                 )))
             }
         }
@@ -137,8 +135,8 @@ impl<'a> Parser<'a> {
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.current_token != t {
             return Err(ParseError::SyntaxError(format!(
-                "Unexpected token: expected {:?}, got {:?}",
-                t, self.current_token
+                "Unexpected token: expected {t:?}, got {:?}",
+                self.current_token
             )));
         }
         self.advance();
@@ -220,8 +218,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Function(_, _, _) => {}
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {} is not callable.",
-                    func
+                    "Expression of type {func} is not callable."
                 )))
             }
         }
@@ -270,8 +267,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Array(_) | Expr::String(_) => (),
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {} is not indexable.",
-                    left
+                    "Expression of type {left} is not indexable."
                 )))
             }
         }

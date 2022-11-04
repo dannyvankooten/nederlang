@@ -86,9 +86,6 @@ impl OpCode {
     }
 }
 
-
-
-
 struct SymbolTable {
     scopes: Vec<Vec<String>>,
 }
@@ -121,7 +118,7 @@ impl SymbolTable {
         let symbols = self.scopes.iter_mut().last().unwrap();
         symbols.push(name.to_string());
         Symbol {
-            scope: scope,
+            scope,
             index: symbols.len() - 1,
         }
     }
@@ -160,7 +157,7 @@ impl Compiler {
             symbol_table: SymbolTable::new(),
             instructions: Vec::with_capacity(64),
             constants: Vec::with_capacity(64),
-            functions:  Vec::<Vec<u8>>::new(),
+            functions: Vec::<Vec<u8>>::new(),
             last_instruction: None,
             tmp_break_stmt: None,
             tmp_continue_stmt: None,
@@ -192,7 +189,7 @@ impl Compiler {
                 assert_eq!(value, 0);
             }
 
-            _ => panic!("Invalid operand width"),
+            _ => panic!("Invalid operator: {op:?}"),
         }
 
         // store last instruction so we can match on it
@@ -303,7 +300,7 @@ impl Compiler {
             Operator::Negate => OpCode::Negate,
             Operator::And => OpCode::And,
             Operator::Or => OpCode::Or,
-            _ => unimplemented!("Operators of type {:?} not yet implemented.", operator),
+            _ => unimplemented!("Operators of type {operator:?} not yet implemented."),
         };
         self.add_instruction(opcode, 0);
     }
@@ -335,7 +332,7 @@ impl Compiler {
                             self.add_instruction(OpCode::GetLocal, symbol.index);
                         }
                     }
-                    None => return Err(Error::ReferenceError(format!("{} is not defined", name))),
+                    None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
                 }
             }
             Expr::Prefix(expr) => {
@@ -349,7 +346,12 @@ impl Compiler {
                         self.add_instruction(OpCode::Not, 0);
                     }
 
-                    _ => return Err(Error::TypeError(format!(""))),
+                    _ => {
+                        return Err(Error::TypeError(format!(
+                            "Invalid operator for prefix expression: {:?}",
+                            expr.operator
+                        )))
+                    }
                 }
             }
             Expr::Assign(expr) => {
@@ -377,12 +379,12 @@ impl Compiler {
                             self.add_instruction(OpCode::GetLocal, symbol.index);
                         }
                     }
-                    None => return Err(Error::ReferenceError(format!("{} is not defined", name))),
+                    None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
                 }
             }
             Expr::Infix(expr) => {
-                self.compile_expression(&*expr.left)?;
-                self.compile_expression(&*expr.right)?;
+                self.compile_expression(&expr.left)?;
+                self.compile_expression(&expr.right)?;
                 self.compile_operator(&expr.operator);
             }
             Expr::If(expr) => {
@@ -484,7 +486,7 @@ impl Compiler {
                 self.add_instruction(OpCode::Call, expr.arguments.len());
             }
 
-            _ => unimplemented!("Can not yet compile expressions of type {:?}", expr),
+            _ => unimplemented!("Can not yet compile expressions of type {expr:?}"),
         }
 
         Ok(())
@@ -643,12 +645,12 @@ pub fn bytecode_to_human(code: &[u8]) -> String {
         }
 
         ip += 1 + op.num_operands();
-        str.push_str(" ");
+        str.push(' ');
     }
 
     // trim trailing whitespace while modifying original string in place
     str.truncate(str.trim().len());
-    return str;
+    str
 }
 
 #[cfg(test)]

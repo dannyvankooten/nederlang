@@ -36,7 +36,7 @@ struct Frame {
 /// As an aside, removing any of the other bound check related to working with the stack does not seen to yield significant performance improvements.
 #[inline]
 fn pop(slice: &mut Vec<NlObject>) -> NlObject {
-    debug_assert!(slice.len() > 0);
+    debug_assert!(!slice.is_empty());
 
     // Safety: slice is never empty, opcodes that push items on the stack always come before anything that pops
     unsafe {
@@ -207,7 +207,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 };
 
                 // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals as u8 - num_args as u8 {
+                for _ in 0..num_locals - num_args as u8 {
                     stack.push(NlObject::Null);
                 }
 

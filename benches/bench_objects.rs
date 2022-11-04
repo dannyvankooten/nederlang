@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nederlang::object::NlObject;
 
 #[derive(Copy, Clone)]
@@ -83,4 +83,5 @@ criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(1000);
     targets = criterion_benchmark
-}criterion_main!(benches);
+}
+criterion_main!(benches);
