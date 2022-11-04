@@ -52,6 +52,8 @@ pub(crate) enum OpCode {
     SetLocal,
     GetGlobal,
     SetGlobal,
+    LtLocalConst,
+    SubtractLocalConst,
     Halt,
 }
 
@@ -71,7 +73,11 @@ impl OpCode {
     fn num_operands(&self) -> usize {
         match self {
             // OpCodes with 2 operands:
-            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => 2,
+            OpCode::Const
+            | OpCode::Jump
+            | OpCode::JumpIfFalse
+            | OpCode::SubtractLocalConst
+            | OpCode::LtLocalConst => 2,
 
             // OpCodes with 1 operand:
             OpCode::Call
@@ -310,6 +316,33 @@ impl Compiler {
         self.add_instruction(opcode, 0);
     }
 
+    fn compile_const_var_infix_expression(
+        &mut self,
+        varname: &str,
+        const_value: &ExprInt,
+        operator: &Operator,
+    ) -> Result<(), Error> {
+        let idx_constant = self.add_constant(NlObject::Int(const_value.value));
+        let symbol = self.symbol_table.resolve(varname);
+        match symbol {
+            Some(symbol) => {
+                let op = match (operator, symbol.scope) {
+                    (Operator::Subtract, Scope::Local) => OpCode::SubtractLocalConst,
+                    (Operator::Lt, Scope::Local) => OpCode::LtLocalConst,
+                    _ => return Err(Error::ReferenceError(format!(
+                        "Optimized variant of this operator & scope type is not yet implemented."
+                    ))),
+                };
+                self.instructions.push(op as u8);
+                self.instructions.push(symbol.index as u8);
+                self.instructions.push(idx_constant as u8);
+            }
+            None => return Err(Error::ReferenceError(format!("{varname} is not defined"))),
+        }
+
+        Ok(())
+    }
+
     fn compile_expression(&mut self, expr: &Expr) -> Result<(), Error> {
         match expr {
             Expr::Bool(expr) => {
@@ -388,6 +421,23 @@ impl Compiler {
                 }
             }
             Expr::Infix(expr) => {
+                // If this expression is a combination of a constant & a variable, create an optimized instruction for it that skips the stack
+                match (&*expr.left, &*expr.right) {
+                    (Expr::Identifier(name), Expr::Int(inner_expr))
+                    | (Expr::Int(inner_expr), Expr::Identifier(name)) => {
+                        let res = self.compile_const_var_infix_expression(
+                            name,
+                            inner_expr,
+                            &expr.operator,
+                        );
+                        if res.is_ok() {
+                            return res;
+                        }
+                    }
+                    _ => (),
+                }
+
+                // If that failed because we haven't implemented a specialized instruction yet, compile it as a sequence of normal instructions
                 self.compile_expression(&expr.left)?;
                 self.compile_expression(&expr.right)?;
                 self.compile_operator(&expr.operator);
@@ -589,6 +639,8 @@ impl Display for OpCode {
             OpCode::SetLocal => f.write_str("SetLocal"),
             OpCode::GetGlobal => f.write_str("GetGlobal"),
             OpCode::SetGlobal => f.write_str("SetGlobal"),
+            OpCode::SubtractLocalConst => f.write_str("SubtractLocalConst"),
+            OpCode::LtLocalConst => f.write_str("LtLocalConst"),
             OpCode::Halt => f.write_str("Halt"),
         }
     }

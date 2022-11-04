@@ -230,6 +230,30 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;
             }
+            OpCode::LtLocalConst => {
+                let left = unsafe {
+                    stack.get_unchecked(
+                        frame.base_pointer + read_u8_operand!(instructions, frame.ip),
+                    )
+                };
+                let right = unsafe {
+                    constants.get_unchecked(read_u8_operand!(instructions, (frame.ip + 1)))
+                };
+                stack.push(left.lt(&right)?);
+                frame.ip += 3;
+            }
+            OpCode::SubtractLocalConst => {
+                let left = unsafe {
+                    stack.get_unchecked(
+                        frame.base_pointer + read_u8_operand!(instructions, frame.ip),
+                    )
+                };
+                let right = unsafe {
+                    constants.get_unchecked(read_u8_operand!(instructions, (frame.ip + 1)))
+                };
+                stack.push(left.sub(&right)?);
+                frame.ip += 3;
+            }
             OpCode::Halt => return Ok(result),
         }
     }
