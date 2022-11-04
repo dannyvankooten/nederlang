@@ -86,15 +86,8 @@ impl OpCode {
     }
 }
 
-pub(crate) struct CompilerScope<'a> {
-    symbol_table: &'a mut SymbolTable,
-    constants: &'a mut Vec<NlObject>,
-    functions: &'a mut Vec<Vec<u8>>,
-    instructions: Vec<u8>,
-    last_instruction: Option<OpCode>,
-    tmp_break_stmt: Option<usize>,
-    tmp_continue_stmt: Option<usize>,
-}
+
+
 
 struct SymbolTable {
     scopes: Vec<Vec<String>>,
@@ -151,18 +144,23 @@ impl SymbolTable {
     }
 }
 
-impl<'a> CompilerScope<'a> {
-    /// Creates a new compiler scope to compile in
-    fn new(
-        constants: &'a mut Vec<NlObject>,
-        symbol_table: &'a mut SymbolTable,
-        functions: &'a mut Vec<Vec<u8>>,
-    ) -> Self {
-        CompilerScope {
-            symbol_table,
+pub(crate) struct Compiler {
+    symbol_table: SymbolTable,
+    constants: Vec<NlObject>,
+    functions: Vec<Vec<u8>>,
+    instructions: Vec<u8>,
+    last_instruction: Option<OpCode>,
+    tmp_break_stmt: Option<usize>,
+    tmp_continue_stmt: Option<usize>,
+}
+
+impl Compiler {
+    fn new() -> Self {
+        Self {
+            symbol_table: SymbolTable::new(),
             instructions: Vec::with_capacity(64),
-            constants,
-            functions,
+            constants: Vec::with_capacity(64),
+            functions:  Vec::<Vec<u8>>::new(),
             last_instruction: None,
             tmp_break_stmt: None,
             tmp_continue_stmt: None,
@@ -208,15 +206,22 @@ impl<'a> CompilerScope<'a> {
         self.last_instruction == Some(op)
     }
 
+    /// Replace the last instruction with the given opcode
+    /// Note that this currently only works with OpCodes that do not take any operand values
     #[inline]
     fn replace_last_instruction(&mut self, op: OpCode) {
-        let last_instruction = self.instructions.iter_mut().last().unwrap();
-        *last_instruction = op as u8;
+        assert_eq!(op.num_operands(), 0);
+        let idx = self.instructions.len() - 1;
+        self.instructions[idx] = op as u8;
+        self.last_instruction = Some(op);
     }
 
     #[inline]
     fn remove_last_instruction(&mut self) {
+        assert!(self.last_instruction.is_some());
+        assert_eq!(self.last_instruction.unwrap().num_operands(), 0);
         self.instructions.pop();
+        self.last_instruction = None;
     }
 
     #[inline]
@@ -227,7 +232,8 @@ impl<'a> CompilerScope<'a> {
     }
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
-        debug_assert_eq!(self.instructions[pos], op as u8);
+        assert_eq!(self.instructions[pos], op as u8);
+        assert_eq!(op.num_operands(), 2);
 
         // TODO: For opcodes with less than 2 operands, we need to account for it here.
         self.instructions[pos + 1] = byte!(new_value, 0);
@@ -539,22 +545,21 @@ fn merge_instructions(a: &mut Vec<u8>, b: &[u8]) {
 
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
-        let mut symbol_table = SymbolTable::new();
-        let mut functions = Vec::<Vec<u8>>::new();
-        let mut constants = Vec::with_capacity(64);
-        let mut scope = CompilerScope::new(&mut constants, &mut symbol_table, &mut functions);
-        scope.compile_block_statement(ast)?;
-        scope.add_instruction(OpCode::Halt, 0);
+        let mut compiler = Compiler::new();
+        compiler.compile_block_statement(ast)?;
+        compiler.add_instruction(OpCode::Halt, 0);
 
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
-        let mut instructions = scope.instructions;
+        let mut instructions = compiler.instructions;
+        let mut constants = compiler.constants;
+
         for c in &mut constants {
             match c {
                 NlObject::CompiledFunctionPointer(index, num_locals) => {
                     // this is where we will store the function's instructions
                     let offset = instructions.len();
 
-                    merge_instructions(&mut instructions, &functions[*index as usize]);
+                    merge_instructions(&mut instructions, &compiler.functions[*index as usize]);
 
                     // replace object with a simple InstructionPointer
                     *c = NlObject::CompiledFunctionPointer(offset as u16, *num_locals);
