@@ -40,24 +40,24 @@ stel b = 20
 stel resultaat = kwadraat(a) + kwadraat(b) - 100 / 5;
 
 // Output: 480
-print(resultaat)
+// print(resultaat)
 
 // While expression
-zolang resultaat > 0 {
-    resultaat = resultaat - 1
+stel i = 10
+zolang i > 0 {
+    i = i - 1
 }
 
 // Output: 0
-print(resultaat)
+// print(resultaat)
 
 // Array
-stel getallen = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
-getallen[0] = 10;
+// stel getallen = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+// getallen[0] = 10;
 
 // Output: 10
-print(getallen[0])
+// print(getallen[0])
 
-// Calculate 35th fibonacci number (using a closure)
 stel fib = functie(n) {
     als n < 2 {
         antwoord n
@@ -65,4 +65,4 @@ stel fib = functie(n) {
 
     fib(n - 1) + fib(n - 2)
 }
-fib(15)
+fib(4)

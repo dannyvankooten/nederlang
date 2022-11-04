@@ -89,10 +89,18 @@ impl OpCode {
 struct SymbolTable {
     scopes: Vec<Vec<String>>,
 }
+#[derive(Debug)]
 struct Symbol {
     scope: Scope,
     index: usize,
 }
+
+#[derive(PartialEq, Debug)]
+enum Scope {
+    Local,
+    Global,
+}
+
 impl SymbolTable {
     fn new() -> Self {
         let mut scopes: Vec<Vec<String>> = Vec::with_capacity(4);
@@ -144,7 +152,6 @@ impl SymbolTable {
 pub(crate) struct Compiler {
     symbol_table: SymbolTable,
     constants: Vec<NlObject>,
-    functions: Vec<Vec<u8>>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
     tmp_break_stmt: Option<usize>,
@@ -157,7 +164,6 @@ impl Compiler {
             symbol_table: SymbolTable::new(),
             instructions: Vec::with_capacity(64),
             constants: Vec::with_capacity(64),
-            functions: Vec::<Vec<u8>>::new(),
             last_instruction: None,
             tmp_break_stmt: None,
             tmp_continue_stmt: None,
@@ -256,7 +262,6 @@ impl Compiler {
                 let symbol = self.symbol_table.define(name);
                 self.compile_expression(value)?;
 
-                // TODO: Emit SetLocal if this is a local scope?
                 if symbol.scope == Scope::Global {
                     self.add_instruction(OpCode::SetGlobal, symbol.index);
                 } else {
@@ -453,7 +458,14 @@ impl Compiler {
                     self.tmp_continue_stmt = None;
                 }
             }
-            Expr::Function(_name, parameters, body) => {
+            Expr::Function(fn_name, parameters, body) => {
+                let symbol = if fn_name != "" {
+                    Some(self.symbol_table.define(fn_name))
+                } else {
+                    None
+                };
+                let jump_over_fn = self.add_instruction(OpCode::Jump, 0);
+
                 // Compile function in a new scope
                 self.symbol_table.enter_scope();
                 for p in parameters {
@@ -470,13 +482,27 @@ impl Compiler {
                     self.add_instruction(OpCode::Return, 0);
                 }
                 let num_locals = self.symbol_table.leave_scope() as u8;
-                self.functions
-                    .push(self.instructions.drain(pos_start_function..).collect());
+                self.change_instruction_operand_at(
+                    OpCode::Jump,
+                    jump_over_fn,
+                    self.instructions.len(),
+                );
+
                 let idx = self.add_constant(NlObject::CompiledFunctionPointer(
-                    (self.functions.len() - 1) as u16,
+                    pos_start_function as u16,
                     num_locals,
                 ));
                 self.add_instruction(OpCode::Const, idx);
+
+                // If this function received a name, define it in the scope
+                if let Some(symbol) = symbol {
+                    if symbol.scope == Scope::Global {
+                        self.add_instruction(OpCode::SetGlobal, symbol.index);
+                    } else {
+                        self.add_instruction(OpCode::SetLocal, symbol.index);
+                    }
+                    self.add_instruction(OpCode::Const, idx);
+                }
             }
             Expr::Call(expr) => {
                 for a in &expr.arguments {
@@ -509,42 +535,6 @@ pub(crate) struct Program {
     pub(crate) instructions: Vec<u8>,
 }
 
-#[derive(PartialEq)]
-enum Scope {
-    Local,
-    Global,
-}
-
-/// Merge two bytecode vectors, updating any instruction operands that refer to an index (eg OpCode::Jump)
-/// This merges b into a (modifying a in place)
-fn merge_instructions(a: &mut Vec<u8>, b: &[u8]) {
-    let offset = a.len();
-    let mut ip = 0;
-    while ip < b.len() {
-        let opcode = OpCode::from(b[ip]);
-        match opcode {
-            // Jump instructions have an operand pointing into the bytecode
-            // So we need to update its operands so it points to the new location
-            OpCode::Jump | OpCode::JumpIfFalse => {
-                let previous = read_u16_operand!(b, ip);
-                let new = previous + offset;
-                a.push(b[ip]);
-                a.push(byte!(new, 0));
-                a.push(byte!(new, 1));
-                ip += 3;
-            }
-
-            // All other instructions can just be copied over
-            _ => {
-                let start = ip;
-                let end = ip + 1 + opcode.num_operands();
-                a.extend(&b[start..end]);
-                ip = end;
-            }
-        }
-    }
-}
-
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
         let mut compiler = Compiler::new();
@@ -554,21 +544,6 @@ impl Program {
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
         let mut instructions = compiler.instructions;
         let mut constants = compiler.constants;
-
-        for c in &mut constants {
-            match c {
-                NlObject::CompiledFunctionPointer(index, num_locals) => {
-                    // this is where we will store the function's instructions
-                    let offset = instructions.len();
-
-                    merge_instructions(&mut instructions, &compiler.functions[*index as usize]);
-
-                    // replace object with a simple InstructionPointer
-                    *c = NlObject::CompiledFunctionPointer(offset as u16, *num_locals);
-                }
-                _ => (),
-            }
-        }
 
         // Shrink everything to least possible size
         instructions.shrink_to_fit();
@@ -622,12 +597,19 @@ impl Display for OpCode {
 // Converts an array of bytes to a string representation consisting of the OpCode along with their u16 values
 // For example: [OpCode::Const, 1, 0] -> "Const(1)"
 #[allow(dead_code)]
-pub fn bytecode_to_human(code: &[u8]) -> String {
+pub fn bytecode_to_human(code: &[u8], positions: bool) -> String {
     let mut ip = 0;
     let mut str = String::with_capacity(256);
 
     while ip < code.len() {
+        if ip > 0 {
+            str.push(' ');
+        }
         let op = OpCode::from(code[ip]);
+
+        if positions {
+            write!(str, "\n{ip:4} ").unwrap();
+        }
         str.push_str(&op.to_string());
 
         match op.num_operands() {
@@ -645,11 +627,8 @@ pub fn bytecode_to_human(code: &[u8]) -> String {
         }
 
         ip += 1 + op.num_operands();
-        str.push(' ');
     }
 
-    // trim trailing whitespace while modifying original string in place
-    str.truncate(str.trim().len());
     str
 }
 
@@ -661,7 +640,18 @@ mod tests {
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
         let program = Program::new(&ast).unwrap();
-        bytecode_to_human(&program.instructions)
+        bytecode_to_human(&program.instructions, false)
+    }
+
+    fn assert_bytecode_eq(program: &str, expected: &str) {
+        let ast = parse(program).unwrap();
+        let code = Program::new(&ast).unwrap();
+        assert_eq!(
+            expected,
+            bytecode_to_human(&code.instructions, false),
+            "\nInput: \t{program}\nBytecode: \t{}",
+            bytecode_to_human(&code.instructions, true)
+        );
     }
 
     #[test]
@@ -728,35 +718,34 @@ mod tests {
 
     #[test]
     fn test_if_expression() {
-        assert_eq!(
-            run("als ja { 1 }"),
-            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop Halt"
+        assert_bytecode_eq(
+            "als ja { 1 }",
+            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop Halt",
         );
-        assert_eq!(
-            run("als ja { 1 } anders { 2 }"),
-            "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop Halt"
+        assert_bytecode_eq(
+            "als ja { 1 } anders { 2 }",
+            "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop Halt",
         );
     }
 
     #[test]
     fn test_function_expression() {
-        // Const(0) is inside the function
-        // Const(1) is the compiled function
-        assert_eq!(
-            run("functie() { 1 }"),
-            "Const(1) Pop Halt Const(0) ReturnValue"
+        assert_bytecode_eq(
+            "functie() { 1 }",
+            "Jump(7) Const(0) ReturnValue Const(1) Pop Halt",
+        );
+
+        assert_bytecode_eq(
+            "functie() { 1 } functie() { 2 }",
+            "Jump(7) Const(0) ReturnValue Const(1) Pop Jump(18) Const(2) ReturnValue Const(3) Pop Halt"
         );
     }
 
     #[test]
     fn test_call_expression() {
-        // Const(0) = 1
-        // Const(1) = 2
-        // Const(2) = functie(a, b) { ... }
-        // Call(2) = call last object on stack with 2 args
-        assert_eq!(
-            run("functie(a, b) { 1 }(1, 2)"),
-            "Const(0) Const(1) Const(2) Call(2) Pop Halt Const(0) ReturnValue"
+        assert_bytecode_eq(
+            "functie(a, b) { 1 }(1, 2)",
+            "Const(0) Const(1) Jump(13) Const(0) ReturnValue Const(2) Call(2) Pop Halt",
         );
     }
 

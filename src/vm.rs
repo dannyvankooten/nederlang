@@ -63,9 +63,9 @@ fn run(program: Program) -> Result<NlObject, Error> {
     #[cfg(feature = "debug")]
     {
         println!("Bytecode (raw): {:?}", &program.instructions);
-        println!(
-            "Bytecode (human): {:?}",
-            bytecode_to_human(&program.instructions)
+        print!(
+            "Bytecode (human): {}\n",
+            bytecode_to_human(&program.instructions, true)
         );
         println!("Constants: {:?}", program.constants);
     }
@@ -101,14 +101,14 @@ fn run(program: Program) -> Result<NlObject, Error> {
             println!("-----------------");
             println!(
                 "Current instruction: \t{:?}",
-                bytecode_to_human(&instructions[frame.ip..])
+                bytecode_to_human(&instructions[frame.ip..], false)
                     .split(" ")
                     .next()
                     .unwrap()
             );
             println!("Globals: \t\t{:?}", globals);
             println!("Stack: \t\t\t{:?}", stack);
-            std::thread::sleep(Duration::from_millis(20));
+            std::thread::sleep(Duration::from_millis(5));
         }
 
         debug_assert!(instructions.len() > frame.ip);
@@ -307,6 +307,15 @@ mod tests {
             run_str("stel a = 1; { stel a = a + 2; } a"),
             Ok(NlObject::Int(1))
         );
+
+        // TODO: This should result in a reference error (it panics currently)
+        // assert!(run_str("functie() { stel a = 2; } a").is_err());
+
+        // assert!(run_str("{ stel a = 2; } a").is_err());
+    }
+
+    #[test]
+    fn test_function_vars() {
         assert_eq!(
             run_str("stel a = 1; functie() { stel a = 2; } a"),
             Ok(NlObject::Int(1))
@@ -315,8 +324,6 @@ mod tests {
             run_str("stel a = 1; functie(a) { antwoord a; }(2)"),
             Ok(NlObject::Int(2))
         );
-
-        // TODO: This should resolve by looking at the outer scope
         assert_eq!(
             run_str("stel a = 1; functie() { a }()"),
             Ok(NlObject::Int(1))
@@ -325,11 +332,27 @@ mod tests {
             run_str("stel a = 1; functie(a, b) { a * 2 + b }(a, 1)"),
             Ok(NlObject::Int(3))
         );
+    }
 
-        // TODO: This should result in a reference error (it panics currently)
-        // assert!(run_str("functie() { stel a = 2; } a").is_err());
+    #[test]
+    fn test_named_functions() {
+        assert_eq!(
+            run_str("functie optellen(a, b) { a + b }; optellen(10, 20)"),
+            Ok(NlObject::Int(30))
+        );
+        assert_eq!(
+            run_str("functie optellen(a, b) { a + b }; functie aftrekken(a, b) { a - b } aftrekken(optellen(10, 20), 30)"),
+            Ok(NlObject::Int(0))
+        );
 
-        // assert!(run_str("{ stel a = 2; } a").is_err());
+        assert_eq!(
+            run_str("stel opt1 = functie opt2(a, b) { a + b }; opt1(1, 2)"),
+            Ok(NlObject::Int(3))
+        );
+        assert_eq!(
+            run_str("stel opt1 = functie opt2(a, b) { a + b }; opt2(1, 2)"),
+            Ok(NlObject::Int(3))
+        );
     }
 
     #[test]
