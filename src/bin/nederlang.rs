@@ -1,13 +1,12 @@
-extern crate nederlang;
-
 use std::fs;
 use std::io::{self, Write};
-use std::mem::size_of;
 use std::path::Path;
-
+use std::env::args;
+#[cfg(feature = "debug")]
+use std::mem::size_of;
+#[cfg(feature = "debug")]
 use nederlang::object::NlObject;
 use nederlang::vm::run_str;
-use std::env::args;
 
 fn run_repl() {
     let mut buffer = String::with_capacity(512);
@@ -24,7 +23,7 @@ fn run_repl() {
     }
 }
 
-fn run_from_file(f: &Path) {
+fn run_file(f: &Path) {
     let program = fs::read_to_string(f).unwrap();
 
     match run_str(&program) {
@@ -34,15 +33,13 @@ fn run_from_file(f: &Path) {
 }
 
 fn main() -> io::Result<()> {
-    assert!(
-        size_of::<NlObject>() <= 16,
-        "NlObject is larger than 16 bytes. Don't cut corners Danny boy."
-    );
+    #[cfg(feature = "debug")]
+    println!("Size of NlObject: {} bytes", size_of::<NlObject>());
 
     let file = args().skip(1).find(|a| !a.starts_with("--"));
     if let Some(file) = file {
         let path = Path::new(&file);
-        run_from_file(path);
+        run_file(path);
     } else {
         run_repl();
     }

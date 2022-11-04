@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use nederlang::{self, object::NlObject};
+use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use nederlang::object::NlObject;
 
 #[derive(Copy, Clone)]
 pub enum Type {
@@ -53,34 +53,34 @@ fn add_objects(a: &NlObject, b: &NlObject) -> NlObject {
     }
 }
 
-fn bench_objects(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Objects");
+fn criterion_benchmark(c: &mut Criterion) {
+    let mut group = c.benchmark_group("objects");
+    let obj_a = Object {
+        t: Type::Int,
+        value: Value { int: 200 },
+    };
+    let obj_b = Object {
+        t: Type::Int,
+        value: Value { int: 800 },
+    };
+    group.bench_function("union/knowntype", |b| {
+        b.iter(|| add_ints(black_box(&obj_a), &obj_b))
+    });
 
-    for i in [20i64].iter() {
-        let obj_a = Object {
-            t: Type::Int,
-            value: Value { int: *i },
-        };
-        let obj_b = Object {
-            t: Type::Int,
-            value: Value { int: *i + 1 },
-        };
-        group.bench_function(BenchmarkId::new("Union (known type)", i), |b| {
-            b.iter(|| add_ints(&obj_a, &obj_b))
-        });
+    group.bench_function("union/unknowntype", |b| {
+        b.iter(|| add_objects_unknown_types(black_box(&obj_a), &obj_b))
+    });
 
-        group.bench_function(BenchmarkId::new("Union (unknown type)", i), |b| {
-            b.iter(|| add_objects_unknown_types(&obj_a, &obj_b))
-        });
-
-        let obj_a = NlObject::Int(*i);
-        let obj_b = NlObject::Int(*i + 1);
-        group.bench_function(BenchmarkId::new("Enum", i), |b| {
-            b.iter(|| add_objects(&obj_a, &obj_b))
-        });
-    }
+    let obj_a = NlObject::Int(200);
+    let obj_b = NlObject::Int(800);
+    group.bench_function("enum", |b| {
+        b.iter(|| add_objects(black_box(&obj_a), &obj_b))
+    });
     group.finish();
 }
 
-criterion_group!(benches, bench_objects);
-criterion_main!(benches);
+criterion_group! {
+    name = benches;
+    config = Criterion::default().sample_size(1000);
+    targets = criterion_benchmark
+}criterion_main!(benches);
