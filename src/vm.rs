@@ -316,22 +316,49 @@ mod tests {
 
     #[test]
     fn test_variables() {
-        assert_eq!(run_str("stel a = 1; a"), Ok(NlObject::Int(1)));
-        assert_eq!(run_str("stel a = 1; stel b = 2; a"), Ok(NlObject::Int(1)));
-        assert_eq!(run_str("stel a = 1; stel b = 2; b"), Ok(NlObject::Int(2)));
-        assert_eq!(
-            run_str("stel a = 1; stel b = 2; stel c = a; c"),
-            Ok(NlObject::Int(1))
-        );
-        assert_eq!(
-            run_str("stel a = 1; { stel a = a + 2; } a"),
-            Ok(NlObject::Int(1))
-        );
+        for (program, expected_result) in [
+            ("stel a = 1; a", NlObject::Int(1)),
+            ("stel a = 1; stel b = 2; a", NlObject::Int(1)),
+            ("stel a = 1; stel b = 2; b", NlObject::Int(2)),
+            (
+                "stel a = 1; stel b = 2; stel c = a + b; c",
+                NlObject::Int(3),
+            ),
+        ] {
+            let result = run_str(program);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), expected_result, "test program: {program}")
+        }
+    }
 
-        // TODO: This should result in a reference error (it panics currently)
-        // assert!(run_str("functie() { stel a = 2; } a").is_err());
+    #[test]
+    fn test_referencing_undeclared_vars() {
+        for program in [
+            "a",
+            "{ stel a = 1; } a",
+            "{ { stel a = 1; } a }",
+            "functie() { stel a = 1; }() a",
+        ] {
+            assert_eq!(
+                run_str(program),
+                Err(Error::ReferenceError("a is not defined".to_string()))
+            )
+        }
+    }
 
-        // assert!(run_str("{ stel a = 2; } a").is_err());
+    #[test]
+    fn test_scoped_variables() {
+        for (program, expected_result) in [
+            ("functie(a) { a + 1 }(1)", NlObject::Int(2)),
+            // Shadow declaration in same scope:
+            ("stel a = 1; stel a = 2; a", NlObject::Int(2)),
+            // This is valid, because the scopes differ:
+            ("stel a = 1; { stel a = 2; } a", NlObject::Int(1)),
+        ] {
+            let result = run_str(program);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), expected_result, "test program: {program}")
+        }
     }
 
     #[test]
