@@ -306,6 +306,10 @@ mod tests {
             run_str("functie() { functie() { 1 }() }() + functie() { 2 }()"),
             Ok(NlObject::Int(3))
         );
+    }
+
+    #[test]
+    fn test_nested_local_scopes() {
         assert_eq!(
             run_str(
                 "1 + functie() { 1 + functie() { 1 }() }() + functie() { functie() { 1 }() + 1 }()"
@@ -351,9 +355,17 @@ mod tests {
         for (program, expected_result) in [
             ("functie(a) { a + 1 }(1)", NlObject::Int(2)),
             // Shadow declaration in same scope:
-            ("stel a = 1; stel a = 2; a", NlObject::Int(2)),
+            // ("stel a = 1; stel a = 2; a", NlObject::Int(2)),
             // This is valid, because the scopes differ:
             ("stel a = 1; { stel a = 2; } a", NlObject::Int(1)),
+            (
+                "stel a = 1; { stel b = 2; } stel c = 3; c",
+                NlObject::Int(3),
+            ),
+            (
+                "stel a = 1; { stel b = a; { stel c = b; c } }",
+                NlObject::Int(1),
+            ),
         ] {
             let result = run_str(program);
             assert!(result.is_ok());
@@ -403,22 +415,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fib_recursion() {
-        assert_eq!(
-            run_str("stel fib = functie(n) { als n < 2 { antwoord n; } fib(n - 1 ) + fib(n - 2) }; fib(6);"),
-            Ok(NlObject::Int(8))
-        );
-    }
-
-    #[test]
-    fn test_fib_loop() {
-        assert_eq!(
-            run_str(include_str!("../examples/fib-loop.nl")),
-            Ok(NlObject::Int(9227465))
-        );
-    }
-
-    #[test]
     fn test_functions_as_argument() {
         assert_eq!(
             run_str("(functie (a) { a() })(functie() { 100 });"),
@@ -447,6 +443,22 @@ mod tests {
         assert_eq!(run_str("!ja"), Ok(NlObject::Bool(false)));
         assert_eq!(run_str("!nee"), Ok(NlObject::Bool(true)));
         assert_eq!(run_str("!!nee"), Ok(NlObject::Bool(false)));
+    }
+
+    #[test]
+    fn test_fib_recursion() {
+        assert_eq!(
+            run_str("stel fib = functie(n) { als n < 2 { antwoord n; } fib(n - 1 ) + fib(n - 2) }; fib(6);"),
+            Ok(NlObject::Int(8))
+        );
+    }
+
+    #[test]
+    fn test_fib_loop() {
+        assert_eq!(
+            run_str(include_str!("../examples/fib-loop.nl")),
+            Ok(NlObject::Int(9227465))
+        );
     }
 
     #[test]

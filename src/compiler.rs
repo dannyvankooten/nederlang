@@ -4,6 +4,7 @@ use std::fmt::Write;
 use crate::ast::*;
 use crate::object::Error;
 use crate::object::NlObject;
+use crate::symbols::*;
 
 macro_rules! byte {
     ($value:expr, $position:literal) => {
@@ -112,71 +113,8 @@ impl OpCode {
     }
 }
 
-struct SymbolTable {
-    scopes: Vec<Vec<String>>,
-}
-#[derive(Debug)]
-struct Symbol {
-    scope: Scope,
-    index: usize,
-}
-
-#[derive(PartialEq, Debug)]
-enum Scope {
-    Local,
-    Global,
-}
-
-impl SymbolTable {
-    fn new() -> Self {
-        let mut scopes: Vec<Vec<String>> = Vec::with_capacity(4);
-        scopes.push(Vec::with_capacity(4));
-        SymbolTable { scopes }
-    }
-
-    fn enter_scope(&mut self) {
-        self.scopes.push(Vec::new());
-    }
-
-    fn leave_scope(&mut self) -> usize {
-        let symbols = self.scopes.pop().unwrap();
-        symbols.len()
-    }
-
-    fn define(&mut self, name: &str) -> Symbol {
-        let scope = if self.scopes.len() > 1 {
-            Scope::Local
-        } else {
-            Scope::Global
-        };
-        let symbols = self.scopes.iter_mut().last().unwrap();
-        symbols.push(name.to_string());
-        Symbol {
-            scope,
-            index: symbols.len() - 1,
-        }
-    }
-
-    fn resolve(&self, name: &str) -> Option<Symbol> {
-        for (i, scope) in self.scopes.iter().rev().enumerate() {
-            if let Some(index) = scope.iter().position(|n| n == name) {
-                return Some(Symbol {
-                    scope: if i < (self.scopes.len() - 1) {
-                        Scope::Local
-                    } else {
-                        Scope::Global
-                    },
-                    index,
-                });
-            }
-        }
-
-        None
-    }
-}
-
 pub(crate) struct Compiler {
-    symbol_table: SymbolTable,
+    symbols: SymbolTable,
     constants: Vec<NlObject>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
@@ -187,7 +125,7 @@ pub(crate) struct Compiler {
 impl Compiler {
     fn new() -> Self {
         Self {
-            symbol_table: SymbolTable::new(),
+            symbols: SymbolTable::new(),
             instructions: Vec::with_capacity(64),
             constants: Vec::with_capacity(64),
             last_instruction: None,
@@ -270,9 +208,11 @@ impl Compiler {
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
+        self.symbols.enter_scope();
         for s in stmts {
             self.compile_statement(s)?;
         }
+        self.symbols.leave_scope();
 
         Ok(())
     }
@@ -285,7 +225,7 @@ impl Compiler {
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
-                let symbol = self.symbol_table.define(name);
+                let symbol = self.symbols.define(name);
                 self.compile_expression(value)?;
 
                 if symbol.scope == Scope::Global {
@@ -343,7 +283,7 @@ impl Compiler {
         operator: &Operator,
     ) -> Result<(), Error> {
         let idx_constant = self.add_constant(NlObject::Int(const_value.value));
-        let symbol = self.symbol_table.resolve(varname);
+        let symbol = self.symbols.resolve(varname);
         match symbol {
             Some(symbol) => {
                 let op = match (operator, symbol.scope) {
@@ -392,7 +332,7 @@ impl Compiler {
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Identifier(name) => {
-                let symbol = self.symbol_table.resolve(name);
+                let symbol = self.symbols.resolve(name);
                 match symbol {
                     Some(symbol) => {
                         if symbol.scope == Scope::Global {
@@ -434,7 +374,7 @@ impl Compiler {
                     }
                 };
 
-                let symbol = self.symbol_table.resolve(name);
+                let symbol = self.symbols.resolve(name);
                 match symbol {
                     Some(symbol) => {
                         self.compile_expression(&expr.right)?;
@@ -541,16 +481,16 @@ impl Compiler {
             }
             Expr::Function(fn_name, parameters, body) => {
                 let symbol = if fn_name != "" {
-                    Some(self.symbol_table.define(fn_name))
+                    Some(self.symbols.define(fn_name))
                 } else {
                     None
                 };
                 let jump_over_fn = self.add_instruction(OpCode::Jump, 0);
 
                 // Compile function in a new scope
-                self.symbol_table.enter_scope();
+                self.symbols.new_context();
                 for p in parameters {
-                    self.symbol_table.define(p);
+                    self.symbols.define(p);
                 }
 
                 let pos_start_function = self.instructions.len();
@@ -562,13 +502,15 @@ impl Compiler {
                 } else if !self.last_instruction_is(OpCode::ReturnValue) {
                     self.add_instruction(OpCode::Return, 0);
                 }
-                let num_locals = self.symbol_table.leave_scope() as u8;
+
                 self.change_instruction_operand_at(
                     OpCode::Jump,
                     jump_over_fn,
                     self.instructions.len(),
                 );
 
+                // Switch back to previous scope again
+                let num_locals = self.symbols.leave_context() as u8;
                 let idx = self.add_constant(NlObject::CompiledFunctionPointer(
                     pos_start_function as u16,
                     num_locals,
