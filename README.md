@@ -42,22 +42,22 @@ stel x = 100
 Verwijzen naar een niet-gedeclareerde variabele resulteert in een fout:
 
 ```
-x + 100             // ReferenceError: x is niet gedeclareerd
+z + 100             // VerwijzingsFout: z is niet gedeclareerd
 ```
 
-Variabelen zijn gelimiteerd tot de scope van het blok waar ze in worden gedeclareerd.
+Variabelen zijn gelimiteerd tot de scope van het blok of de functie waarin ze worden gedeclareerd.
 
 ```
 stel x = 100
 {
     stel y = 100
     y + x           // => 200
-}
-y                   // ReferenceError: y is niet gedeclareerd
+}                   
+y                   // VerwijzingsFout: y is niet gedeclareerd
 x                   // => 100
 ```
 
-Eenmaal gedeclareerde variabelen kunnen een nieuwe waarde krijgen.
+Eenmaal gedeclareerde variabelen kunnen een nieuwe waarde krijgen toegewezen.
 
 ```
 stel x = 1
@@ -67,19 +67,19 @@ x                   // => 2
 
 #### Functies
 
-Functies zijn geldige waardes in Nederlang en kunnen dus als argument aan een andere functie worden meegegeven.
+Functies declareer je in de volgende vorm: `functie <naam?> (<parameter?>, ...) { <body> }`
 
 ```
-stel optellen = functie(a, b) { a + b }
+functie optellen(a, b) { 
+    a + b 
+}
 optellen(2, 3)      // => 5
 ```
 
 Alternatief kun je functies ook declareren in de volgende vorm:
 
 ```
-functie optellen(a, b) {
-    a + b
-}
+stel optellen = functie(a, b) { a + b }
 optellen(2, 3)      // => 5
 ```
 
@@ -93,6 +93,20 @@ functie fibonacci(n) {
 
     fibonacci(n - 1) + fibonacci(n - 2)
 }
+```
+
+Functies zijn geldige waardes in Nederlang en kan je dus als argument meegeven aan een andere functie:
+
+```
+functie opteller(a, b) {
+    a + b
+}
+
+functie bereken(f, a, b) {
+    f(a, b)
+}
+
+bereken(opteller, 2, 3)     // => 5
 ```
 
 #### Voorwaardelijke stellingen
@@ -111,6 +125,33 @@ als 1 + 1 == 2 {
 stel aantal = 5
 zolang aantal > 0 {
     aantal = aantal - 1
+}
+```
+
+Om onder voorwaarde uit een loop te stappen gebruik je `stop`:
+
+```
+stel aantal = 1
+zolang ja {
+    aantal = aantal + 1
+
+    als aantal == 100 {
+        stop
+    }
+}
+aantal                      // => 100
+```
+
+Om vroegtijdig naar een volgende iteratie van een loop te gaan gebruik je `volgende`:
+
+```
+stel n = 0
+zolang n < 10 {
+    als n % 2 != 0 {
+        volgende
+    }
+
+    // n is een even getal
 }
 ```
 

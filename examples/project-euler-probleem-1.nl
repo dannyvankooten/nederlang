@@ -2,15 +2,17 @@
 
 functie probleem_1() {
     stel som = 0
+    stel i = 1
 
-    voor elke i in 1..1000 {
+    zolang i <= 1000 {
         als i % 3 == 0 of i % 5 == 0 {
-            som += i
+            som = som + i
         }
-    } 
+
+        i = i + 1
+    }
 
     antwoord som
 }
 
-stel a = probleem_1()
-print(a)
+probleem_1()

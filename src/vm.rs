@@ -280,15 +280,50 @@ mod tests {
     }
 
     #[test]
+    fn test_logical_andor() {
+        assert_eq!(run_str("ja en ja"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("ja en nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee en nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee of nee"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("nee of ja"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("1 > 0 of 0 > 1"), Ok(NlObject::Bool(true)));
+    }
+
+    #[test]
+    fn test_negating_values() {
+        assert_eq!(run_str("-1"), Ok(NlObject::Int(-1)));
+        assert_eq!(run_str("-1.00"), Ok(NlObject::Float(-1.00)));
+    }
+
+    #[test]
+    fn test_not_values() {
+        assert_eq!(run_str("!ja"), Ok(NlObject::Bool(false)));
+        assert_eq!(run_str("!nee"), Ok(NlObject::Bool(true)));
+        assert_eq!(run_str("!!nee"), Ok(NlObject::Bool(false)));
+    }
+
+    #[test]
     fn test_if_expression() {
         assert_eq!(run_str("als ja { 1 }"), Ok(NlObject::Int(1)));
+        assert_eq!(run_str("als nee { 1 }"), Ok(NlObject::Null));
+    }
+
+    #[test]
+    fn test_if_expression_with_else() {
         assert_eq!(run_str("als ja { 1 } anders { 2 }"), Ok(NlObject::Int(1)));
         assert_eq!(run_str("als nee { 1 } anders { 2 }"), Ok(NlObject::Int(2)));
         assert_eq!(
             run_str("als nee { 1 } anders als nee { 2 } anders { 3 + 3 }"),
             Ok(NlObject::Int(6))
         );
-        assert_eq!(run_str("als nee { 1 }"), Ok(NlObject::Null));
+    }
+
+    #[test]
+    fn test_if_expression_with_empty_else() {
+        assert_eq!(run_str("als ja { 1 } anders {  }"), Ok(NlObject::Int(1)));
+        // The following currently panics because nothing is on the stack
+        // Compiler should probably delete that (dce)
+        //assert_eq!(run_str("als nee { 1 } anders {  }"), Ok(NlObject::Int(1)));
     }
 
     #[test]
@@ -328,6 +363,18 @@ mod tests {
                 "stel a = 1; stel b = 2; stel c = a + b; c",
                 NlObject::Int(3),
             ),
+        ] {
+            let result = run_str(program);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), expected_result, "test program: {program}")
+        }
+    }
+
+    #[test]
+    fn test_assignments() {
+        for (program, expected_result) in [
+            ("stel a = 1; a = 2; a", NlObject::Int(2)),
+            ("stel a = 1; a = 2; a = 3; a", NlObject::Int(3)),
         ] {
             let result = run_str(program);
             assert!(result.is_ok());
@@ -384,10 +431,6 @@ mod tests {
             Ok(NlObject::Int(2))
         );
         assert_eq!(
-            run_str("stel a = 1; functie() { a }()"),
-            Ok(NlObject::Int(1))
-        );
-        assert_eq!(
             run_str("stel a = 1; functie(a, b) { a * 2 + b }(a, 1)"),
             Ok(NlObject::Int(3))
         );
@@ -423,26 +466,15 @@ mod tests {
     }
 
     #[test]
-    fn test_logical_andor() {
-        assert_eq!(run_str("ja en ja"), Ok(NlObject::Bool(true)));
-        assert_eq!(run_str("ja en nee"), Ok(NlObject::Bool(false)));
-        assert_eq!(run_str("nee en nee"), Ok(NlObject::Bool(false)));
-        assert_eq!(run_str("nee of nee"), Ok(NlObject::Bool(false)));
-        assert_eq!(run_str("nee of ja"), Ok(NlObject::Bool(true)));
-        assert_eq!(run_str("1 > 0 of 0 > 1"), Ok(NlObject::Bool(true)));
-    }
-
-    #[test]
-    fn test_negating_values() {
-        assert_eq!(run_str("-1"), Ok(NlObject::Int(-1)));
-        assert_eq!(run_str("-1.00"), Ok(NlObject::Float(-1.00)));
-    }
-
-    #[test]
-    fn test_not_values() {
-        assert_eq!(run_str("!ja"), Ok(NlObject::Bool(false)));
-        assert_eq!(run_str("!nee"), Ok(NlObject::Bool(true)));
-        assert_eq!(run_str("!!nee"), Ok(NlObject::Bool(false)));
+    fn test_function_accessing_global() {
+        assert_eq!(
+            run_str("stel a = 1; functie() { a }();"),
+            Ok(NlObject::Int(1))
+        );
+        assert_eq!(
+            run_str("functie a() { 1 }; functie b() { a() }; b()"),
+            Ok(NlObject::Int(1))
+        );
     }
 
     #[test]
