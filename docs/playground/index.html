@@ -3,20 +3,26 @@
   <head>
     <meta charset="utf-8" />
     <title>Nederlang Speeltuin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: sans-serif; font-size: 16px; padding: 2em; line-height: 1.6; background: #202224; color: #FFF; }
+        body { font-family: sans-serif; font-size: 16px; padding: 0.5em; line-height: 1.6; background: #202224; color: #FFF; }
         .m { margin: 1em 0; }
         hr.m { display: block; margin: 2em 0; height: 1px; background: #333; border: 0; }
         #wrapper{ position: relative; height: 400px; width: 100%; margin: 0 1em 1em 0; }
         h1 { margin: 0; }
         a { color: rgb(0, 173, 216); }
-        .header{ display: flex; }
-        .menu {
-            display: flex;
-            flex: 1;
-            flex-wrap: nowrap;
-            gap: 0.5rem;
-            justify-content: flex-end;
+        .header { margin-bottom: 1em; }
+        
+        @media(min-width: 600px) {
+            body { padding: 2em; }
+            .header{ display: flex; }
+            .menu {
+                display: flex;
+                flex: 1;
+                flex-wrap: nowrap;
+                justify-content: flex-end;
+                gap: 0.5rem;
+            }
         }
         #nl-editor {
             font-size: 16px;
@@ -59,10 +65,18 @@
             font-size: 14px;
             font-style: italic;
         }
+
+        footer {
+            font-size: 14px;
+            color: #EEE;
+            margin-top: 4em;
+            padding-top: 2em;
+            border-top: 1px solid #333;
+        }
     </style>
   </head>
   <body>
-    <div class="header m">
+    <header class="header">
         <div class="title"><h1>Nederlang speeltuin</h1></div>
         <div class="menu">
             <button type="button" id="nl-execute" class="primary">Uitvoeren</button> 
@@ -73,7 +87,7 @@
                 <option value="fib-loop">Fibonacci loop</option>
             </select>
         </div>
-    </div>
+    </header>
     
     
     <div id="wrapper">
@@ -82,13 +96,10 @@
     <div class="m">
 </div>
 <div id="nl-result" class="m"></div>    
-
-<hr class="m" />
-<div>
+<footer>
     <p>Dit is de online speeltuin voor de <a href="https://github.com/dannyvankooten/nederlang">Nederlang</a> programmeertaal.</p>
-</div>
+</footer>
 
-<!-- JavaScript -->
 <script src="dist/index.js"></script>
 <script src="deps/ace.js" type="text/javascript" charset="utf-8"></script>
 <script>
@@ -103,7 +114,7 @@
             editor.setValue(code);
             window.location.hash = '';
         } else {
-            const code = document.getElementById('nl-preset-voorbeeld').content.textContent;
+            const code = document.getElementById('nl-preset-voorbeeld').content.textContent.trim();
             editor.setValue(code);
         }
     })
@@ -116,7 +127,7 @@
         let [success, message, elapsed_time] = e.data;
         if (success) {
             message = `<div><strong>Resultaat: </strong> ${message}</div>`
-            message += `<div class="m muted">Programma was bezig voor ${elapsed_time} ms.</div>`
+            message += `<div class="m muted">Programma was bezig voor <strong>${elapsed_time}</strong> ms.</div>`
             resultElement.innerHTML = message;
         } else {
             let pos = message.indexOf(':');
@@ -148,7 +159,7 @@
 
     document.getElementById('nl-preset').addEventListener('change', function() {
         let code = document.getElementById("nl-preset-" + this.value);
-        editor.setValue(code.content.textContent);
+        editor.setValue(code.content.textContent.trim());
     })
 </script>
 
