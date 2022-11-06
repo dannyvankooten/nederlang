@@ -18,7 +18,7 @@
             gap: 0.5rem;
             justify-content: flex-end;
         }
-        #editor {
+        #nl-editor {
             font-size: 16px;
             position: absolute;
             left: 0; top: 0;
@@ -41,6 +41,9 @@
             min-width: 65px;
             padding: 0 1em;
         }
+        button.busy {
+            cursor: not-allowed;
+        }
         button.primary {
             border-color: rgb(0, 173, 216);
         }
@@ -62,9 +65,9 @@
     <div class="header m">
         <div class="title"><h1>Nederlang speeltuin</h1></div>
         <div class="menu">
-            <button id="execute" class="primary">Uitvoeren</button> 
-            <button id="share">Delen</button>
-            <select id="preset" name="preset" autocomplete="off">
+            <button type="button" id="nl-execute" class="primary">Uitvoeren</button> 
+            <button type="button" id="nl-share">Delen</button>
+            <select id="nl-preset" autocomplete="off">
                 <option value="voorbeeld" selected>Voorbeeld</option>
                 <option value="fib-rec">Fibonacci recursief</option>
                 <option value="fib-loop">Fibonacci loop</option>
@@ -74,11 +77,11 @@
     
     
     <div id="wrapper">
-        <div id="editor"></div>
+        <div id="nl-editor"></div>
     </div>
     <div class="m">
 </div>
-<div id="result" class="m"></div>    
+<div id="nl-result" class="m"></div>    
 
 <hr class="m" />
 <div>
@@ -86,64 +89,71 @@
 </div>
 
 <!-- JavaScript -->
-<script type="module">
-    import init, { nederlang_eval } from './pkg/playground.js';
-    init().then(() => {
-        window.nederlang = nederlang_eval;
-    });
-    </script>
+<script src="dist/index.js"></script>
 <script src="deps/ace.js" type="text/javascript" charset="utf-8"></script>
 <script>
-    const editor = ace.edit("editor");
+    const editor = ace.edit("nl-editor");
     editor.setTheme("ace/theme/nord_dark");
+
+    // populate code editor on window.load
     window.addEventListener('load', function() {
-        const code = document.getElementById('voorbeeld').content.textContent;
-        editor.setValue(code);
+        if (window.location.hash.startsWith('#code=')) {
+            let code = window.location.hash.substring("#code".length + 1);
+            code = window.decodeURIComponent(code);
+            editor.setValue(code);
+            window.location.hash = '';
+        } else {
+            const code = document.getElementById('nl-preset-voorbeeld').content.textContent;
+            editor.setValue(code);
+        }
     })
+
+    const myWorker = new Worker('worker.js');
+    const executeButton = document.getElementById('nl-execute');
+    const resultElement = document.getElementById('nl-result');
+
+    myWorker.onmessage = (e) => {
+        let [success, message, elapsed_time] = e.data;
+        if (success) {
+            message = `<div><strong>Resultaat: </strong> ${message}</div>`
+            message += `<div class="m muted">Programma was bezig voor ${elapsed_time} ms.</div>`
+            resultElement.innerHTML = message;
+        } else {
+            let pos = message.indexOf(':');
+            message = '<strong>' + message.substring(0, pos) + ':</strong> ' + message.substring(pos+1);
+            resultElement.innerHTML = message;
+        }
+
+        executeButton.disabled = false;
+        executeButton.classList.remove('busy');
+    }
     
-    document.getElementById('execute').addEventListener('click', function() {
-        document.getElementById('result').innerHTML = '<div class="m muted">Bezig...</div>';
+    executeButton.addEventListener('click', function(evt) {
+        evt.preventDefault();
 
-        window.requestAnimationFrame(() => {
-            let code = editor.getValue();
-            let start = performance.now();
-            let response = nederlang(code);
-            let elapsed_time = performance.now() - start;            
-            
-            if (response.success) {
-                let message = `<strong>Resultaat: </strong> ${response.message}`
-                message += `<div class="m muted">Programma was bezig voor ${elapsed_time} ms.</div>`
-                document.getElementById('result').innerHTML = message;
-            } else {
-                let message = response.message;
-                let pos = message.indexOf(':');
-                message = '<strong>' + message.substring(0, pos) + ':</strong> ' + message.substring(pos+1);
-                document.getElementById('result').innerHTML = message;
-            }
-        })
+        resultElement.innerHTML = '<div class="m muted">Bezig...</div>';
+        executeButton.disabled = true;
+        executeButton.classList.add('busy');
+    
+        let code = editor.getValue();
+        myWorker.postMessage(code);
     })
 
-    document.getElementById('share').addEventListener('click', function() {
+    document.getElementById('nl-share').addEventListener('click', function(evt) {
+        evt.preventDefault();
         let code = editor.getValue();
         window.location.hash = 'code=' + window.encodeURIComponent(code);
+        window.prompt("You can share this code snippet using the following URL", window.location);
     })
 
-    document.getElementById('preset').addEventListener('change', function() {
-        let code = document.getElementById(this.value);
+    document.getElementById('nl-preset').addEventListener('change', function() {
+        let code = document.getElementById("nl-preset-" + this.value);
         editor.setValue(code.content.textContent);
     })
-
-    // read code from hash 
-    if (window.location.hash.startsWith('#code=')) {
-        let code = window.location.hash.substring("#code".length + 1);
-        code = window.decodeURIComponent(code);
-        editor.setValue(code);
-        window.location.hash = '';
-    }
 </script>
 
 <!-- Voorbeeld programma's volgen hieronder -->
-<template id="voorbeeld">
+<template id="nl-preset-voorbeeld">
 // Variabelen declareer je met "stel"
 stel a = 1;
 
@@ -175,7 +185,7 @@ zolang b > 0 {
 }
 b
 </template>
-<template id="fib-rec">
+<template id="nl-preset-fib-rec">
 functie fib(n) {
     als n < 2 {
         antwoord n
@@ -184,9 +194,9 @@ functie fib(n) {
     fib(n - 1) + fib(n - 2)
 }
 
-fib(15)
+fib(35)
 </template>
-<template id="fib-loop">
+<template id="nl-preset-fib-loop">
 stel fibonacci = functie(n) {
     stel a = 0;
     stel b = 1;

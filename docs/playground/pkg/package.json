@@ -6,7 +6,6 @@
     "playground.js",
     "playground.d.ts"
   ],
-  "module": "playground.js",
-  "types": "playground.d.ts",
-  "sideEffects": false
+  "browser": "playground.js",
+  "types": "playground.d.ts"
 }

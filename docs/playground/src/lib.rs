@@ -1,9 +1,9 @@
 use wasm_bindgen::prelude::*;
 extern crate nederlang;
 
-use nederlang::vm::run_str;
-use nederlang::object::NlObject;
 use nederlang::object::Error;
+use nederlang::object::NlObject;
+use nederlang::vm::run_str;
 
 #[wasm_bindgen(getter_with_clone)]
 pub struct NlResponse {
@@ -11,7 +11,7 @@ pub struct NlResponse {
     pub message: String,
 }
 
-#[wasm_bindgen] 
+#[wasm_bindgen]
 pub fn nederlang_eval(code: &str) -> NlResponse {
     // let start = Instant::now();
     match run_str(code) {
@@ -20,20 +20,25 @@ pub fn nederlang_eval(code: &str) -> NlResponse {
                 NlObject::Int(v) => v.to_string(),
                 NlObject::Float(v) => v.to_string(),
                 NlObject::Bool(v) => v.to_string(),
-                _ => "".to_string()
-
+                _ => "".to_string(),
             };
-            NlResponse{ success: true, message: result }
-        },
+            NlResponse {
+                success: true,
+                message: result,
+            }
+        }
         Err(e) => {
             let message = match e {
                 Error::SyntaxError(message) => format!("SyntaxError: {message}"),
                 Error::TypeError(message) => format!("TypeError: {message}"),
                 Error::ReferenceError(message) => format!("ReferenceError: {message}"),
                 Error::IndexError(message) => format!("IndexError: {message}"),
+                _ => format!("Fout: iets ging er mis.."),
             };
-            NlResponse { success: false, message }
-
+            NlResponse {
+                success: false,
+                message,
+            }
         }
     }
 }
