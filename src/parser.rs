@@ -66,6 +66,22 @@ impl<'a> Parser<'a> {
         Operator::from(self.current_token)
     }
 
+    /// Parses OpAssign expressions, like a += 5
+    /// This is just syntactic sugar, internally they are replaced by two seperate expression
+    /// Perhaps this deserves its own specialized OpCode in the future to save some instructions
+    fn parse_op_assign_expression(
+        &mut self,
+        left: Expr,
+        operator: Operator,
+    ) -> Result<Expr, ParseError> {
+        self.advance();
+        let right = self.parse_expr(Precedence::Lowest)?;
+        Ok(ExprAssign::new(
+            left.clone(),
+            ExprInfix::new(left, operator, right),
+        ))
+    }
+
     /// Parses an infix expression, like [Token::Int(5), Token::Minus, Token::Int(5)]
     fn parse_infix_expr(&mut self, left: Expr) -> Result<Expr, ParseError> {
         match &left {
@@ -80,6 +96,11 @@ impl<'a> Parser<'a> {
         let operator = self.parse_operator();
         let precedence = self.current_token.precedence();
         self.advance();
+
+        if self.current_token == Token::Assign && matches!(left, Expr::Identifier(_)) {
+            return self.parse_op_assign_expression(left, operator);
+        }
+
         let right = self.parse_expr(precedence)?;
         Ok(ExprInfix::new(left, operator, right))
     }
@@ -771,6 +792,19 @@ mod tests {
                 ))],
             ),
         ] {
+            assert_eq!(parse(input).unwrap(), expected_ast)
+        }
+    }
+
+    #[test]
+    fn test_op_assign_expression() {
+        for (input, expected_ast) in [(
+            "a += 5",
+            vec![Stmt::Expr(ExprAssign::new(
+                ExprIdent::new("a"),
+                ExprInfix::new(ExprIdent::new("a"), Operator::Add, ExprInt::new(5)),
+            ))],
+        )] {
             assert_eq!(parse(input).unwrap(), expected_ast)
         }
     }

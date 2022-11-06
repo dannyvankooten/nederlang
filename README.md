@@ -6,7 +6,24 @@ De Nederlang code wordt gecompileerd naar bytecode en dan in een virtual machine
 
 Dit hele project is natuurlijk een grapje en vooral bedoeld om van te leren. Het doel is om een taal neer te zetten die compleet genoeg is om [Advent of Code](https://adventofcode.com/) mee te kunnen doen.
 
-#### Types
+## Installeren
+
+Om Nederlang op je computer te installeren moet je voorlopig nog even zelf builden vanaf de source (met [cargo](https://www.rust-lang.org/learn/get-started)).
+
+```
+git clone git@github.com:dannyvankooten/nederlang.git
+cd nederlang
+cargo build --release
+```
+
+Na het uitvoeren van bovenstaande stappen staat de executable in `target/release/nederlang`. Om deze system-wide beschikbaar te hebben kan je deze (op Unix systemen) verplaatsen naar `/usr/local/bin`.
+
+```
+cp target/release/nederlang /usr/local/bin/nederlang
+```
+
+
+### Types
 
 Nederlang heeft first class support voor de volgende types:
 
@@ -19,7 +36,7 @@ Nederlang heeft first class support voor de volgende types:
 - ~~Maps~~
 - ~~Sets~~
 
-#### Expressies
+### Expressies
 
 De standaard wiskundige rekenregels gelden voor expressies:
 
@@ -31,7 +48,7 @@ De standaard wiskundige rekenregels gelden voor expressies:
 (1 > 2 en 2 > 1) of ja  // => ja
 ```
 
-#### Variabelen
+### Variabelen
 
 Variabelen worden gedeclareerd met `stel`:
 
@@ -65,7 +82,26 @@ x = 2
 x                   // => 2
 ```
 
-#### Functies
+#### Syntactische suiker
+
+Om een variabele een nieuwe waarde toe te wijzen in relatie tot zichzelf kan je in plaats van de volledige vorm:
+
+```
+a = a + 5
+a = a * 100
+// etc..
+```
+
+Ook het volgende schrijven:
+
+```
+a += 5
+a *= 100
+// etc..
+```
+
+
+### Functies
 
 Functies declareer je in de volgende vorm: `functie <naam?> (<parameter?>, ...) { <body> }`
 
@@ -155,22 +191,7 @@ zolang n < 10 {
 }
 ```
 
-### Installeren
 
-Om Nederlang op je computer te installeren moet je voorlopig nog even zelf builden vanaf de source (met [cargo](https://www.rust-lang.org/learn/get-started)).
-
-```
-git clone git@github.com:dannyvankooten/nederlang.git
-cd nederlang
-cargo build --release
-```
-
-Na het uitvoeren van bovenstaande stappen staat de executable in `target/release/nederlang`. Om deze system-wide beschikbaar te hebben kan je deze (op Unix systemen) verplaatsen naar `/usr/local/bin`.
-
-```
-cp target/release/nederlang /usr/local/bin/nederlang
-```
-
-### License
+## License
 
 GPLv3, voor nu.
