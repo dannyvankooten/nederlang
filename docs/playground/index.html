@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nederlang Speeltuin</title>
+    <style>
+        body { font-family: sans-serif; font-size: 16px; padding: 2em; line-height: 1.6; background: #202224; color: #FFF; }
+        .m { margin: 1em 0; }
+        hr.m { display: block; margin: 2em 0; height: 1px; background: #333; border: 0; }
+        #wrapper{ position: relative; height: 400px; width: 100%; margin: 0 1em 1em 0; }
+        h1 { margin: 0; }
+        a { color: rgb(0, 173, 216); }
+        .header{ display: flex; }
+        .menu {
+            display: flex;
+            flex: 1;
+            flex-wrap: nowrap;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+        #editor {
+            font-size: 16px;
+            position: absolute;
+            left: 0; top: 0;
+            width: 100%;
+            height: 400px;
+        }
+        button {
+            align-items: center;
+            background-color: rgb(37, 52, 67);
+            border: 1px solid rgb(37, 52, 67);
+            border-radius: 3px;
+            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 5px 0px;
+            box-sizing: border-box;
+            color: rgb(80, 183, 224);
+            cursor: pointer;
+            font-weight: 700;
+            height: 28px;
+            justify-content: center;
+            line-height: normal;
+            min-width: 65px;
+            padding: 0 1em;
+        }
+        button.primary {
+            border-color: rgb(0, 173, 216);
+        }
+        select {
+            background-color: rgb(32, 34, 36);
+            border: 1px solid #999;
+            border-radius: 3px;
+            color: rgb(240, 241, 242);
+            height: 28px;
+        }
+        .muted {
+            color: #AAA;
+            font-size: 14px;
+            font-style: italic;
+        }
+    </style>
+  </head>
+  <body>
+    <div class="header m">
+        <div class="title"><h1>Nederlang speeltuin</h1></div>
+        <div class="menu">
+            <button id="execute" class="primary">Uitvoeren</button> 
+            <button id="share">Delen</button>
+            <select id="preset" name="preset" autocomplete="off">
+                <option value="voorbeeld" selected>Voorbeeld</option>
+                <option value="fib-rec">Fibonacci recursief</option>
+                <option value="fib-loop">Fibonacci loop</option>
+            </select>
+        </div>
+    </div>
+    
+    
+    <div id="wrapper">
+        <div id="editor"></div>
+    </div>
+    <div class="m">
+</div>
+<div id="result" class="m"></div>    
+
+<hr class="m" />
+<div>
+    <p>Dit is de online speeltuin voor de <a href="https://github.com/dannyvankooten/nederlang">Nederlang</a> programmeertaal.</p>
+</div>
+
+<!-- JavaScript -->
+<script type="module">
+    import init, { nederlang_eval } from './pkg/playground.js';
+    init().then(() => {
+        window.nederlang = nederlang_eval;
+    });
+    </script>
+<script src="deps/ace.js" type="text/javascript" charset="utf-8"></script>
+<script>
+    const editor = ace.edit("editor");
+    editor.setTheme("ace/theme/nord_dark");
+    window.addEventListener('load', function() {
+        const code = document.getElementById('voorbeeld').content.textContent;
+        editor.setValue(code);
+    })
+    
+    document.getElementById('execute').addEventListener('click', function() {
+        document.getElementById('result').innerHTML = '<div class="m muted">Bezig...</div>';
+
+        let code = editor.getValue();
+        let start = performance.now();
+        let response = nederlang(code);
+        let elapsed_time = performance.now() - start;
+        console.log(response.success);
+        
+        
+        if (response.success) {
+            let message = `<strong>Resultaat: </strong> ${response.message}`
+            message += `<div class="m muted">Programma was bezig voor ${elapsed_time} ms.</div>`
+            document.getElementById('result').innerHTML = message;
+        } else {
+            let message = response.message;
+            let pos = message.indexOf(':');
+            message = '<strong>' + message.substring(0, pos) + ':</strong> ' + message.substring(pos+1);
+            document.getElementById('result').innerHTML = message;
+        }
+        
+    });
+
+    document.getElementById('share').addEventListener('click', function() {
+        let code = editor.getValue();
+        window.location.hash = 'code=' + window.encodeURIComponent(code);
+    })
+
+    document.getElementById('preset').addEventListener('change', function() {
+        console.log(this.value);
+        let code = document.getElementById(this.value);
+        editor.setValue(code.content.textContent);
+    })
+
+    // read code from hash 
+    if (window.location.hash.startsWith('#code=')) {
+        let code = window.location.hash.substring("#code".length + 1);
+        code = window.decodeURIComponent(code);
+        editor.setValue(code);
+        window.location.hash = '';
+    }
+</script>
+
+<!-- Voorbeeld programma's volgen hieronder -->
+<template id="voorbeeld">
+// Variabelen declareer je met "stel"
+stel a = 1;
+
+// Eenmaal gedeclareerde variabelen kun je een nieuwe waarde toeschrijven:
+a = 2;
+
+// Functies:
+functie is_even(n) {
+    n % 2 == 0
+}
+
+als is_even(2) {
+    10
+    // print("Ja, 2 is een even getal!");
+} 
+
+stel b = als nee { 1 } anders { 2 }
+
+als b == 2 {
+    b = b + 1;
+}
+
+zolang b > 0 {
+    b = b - 1
+
+    als b == 1 {
+        stop
+    }
+}
+b
+</template>
+<template id="fib-rec">
+functie fib(n) {
+    als n < 2 {
+        antwoord n
+    } 
+
+    fib(n - 1) + fib(n - 2)
+}
+
+fib(15)
+</template>
+<template id="fib-loop">
+stel fibonacci = functie(n) {
+    stel a = 0;
+    stel b = 1;
+    stel c = a + b;
+    stel i = 2;
+
+    zolang i < n {
+        i = i + 1;
+        a = b;
+        b = c;
+        c = a + b;
+    }
+
+    antwoord c;
+}
+
+fibonacci(35);
+</template>
+  </body>
+</html>
