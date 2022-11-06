@@ -6,6 +6,11 @@ De Nederlang code wordt gecompileerd naar bytecode en dan in een virtual machine
 
 Dit hele project is natuurlijk een grapje en vooral bedoeld om van te leren. Het doel is om een taal neer te zetten die compleet genoeg is om [Advent of Code](https://adventofcode.com/) mee te kunnen doen.
 
+## Spelen
+
+Je kunt Nederlang direct vanuit je browser proberen in de [Nederlang speeltuin](https://dannyvankooten.github.io/nederlang/playground/). 
+
+
 ## Installeren
 
 Om Nederlang op je computer te installeren moet je voorlopig nog even zelf builden vanaf de source (met [cargo](https://www.rust-lang.org/learn/get-started)).
