@@ -2,12 +2,11 @@ use crate::compiler::{OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
+use std::io::Write;
 use std::ptr;
 
 #[cfg(feature = "debug")]
 use crate::compiler::bytecode_to_human;
-#[cfg(feature = "debug")]
-use std::time::Duration;
 
 macro_rules! read_u8_operand {
     ($instructions:expr, $ip:expr) => {
@@ -62,17 +61,22 @@ pub fn run_str(program: &str) -> Result<NlObject, Error> {
 fn run(program: Program) -> Result<NlObject, Error> {
     #[cfg(feature = "debug")]
     {
-        println!("Bytecode (raw): {:?}", &program.instructions);
+        println!("Bytecode (raw)= \n{:?}", &program.instructions);
         print!(
-            "Bytecode (human): {}\n",
+            "Bytecode (human)= {}\n",
             bytecode_to_human(&program.instructions, true)
         );
-        println!("Constants: {:?}", program.constants);
+        println!("{:16}= {:?}", "Constants", program.constants);
     }
 
+    // Buffer used to capture input from stdin during stepped debugging
+    let mut buffer = String::new();
+
+    // Syntactic sugar
     let instructions = program.instructions;
     let constants = program.constants;
 
+    // Storage
     let mut stack = Vec::with_capacity(64);
     let mut globals = Vec::with_capacity(8);
     let mut frames = Vec::with_capacity(32);
@@ -104,20 +108,42 @@ fn run(program: Program) -> Result<NlObject, Error> {
         return Ok(result);
     }
 
+    let mut debug_pause = 0;
+
     loop {
         #[cfg(feature = "debug")]
         {
-            println!("-----------------");
             println!(
-                "Current instruction: \t{:?}",
+                "{:16}= {}/{}: {}",
+                "Instruction",
+                frame.ip,
+                instructions.len(),
                 bytecode_to_human(&instructions[frame.ip..], false)
                     .split(" ")
                     .next()
                     .unwrap()
             );
-            println!("Globals: \t\t{:?}", globals);
-            println!("Stack: \t\t\t{:?}", stack);
-            std::thread::sleep(Duration::from_millis(5));
+            print!("{:16}= [", "Globals");
+            for (i, v) in globals.iter().enumerate() {
+                print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
+            }
+            println!("]");
+            print!("{:16}= [", "Stack");
+            for (i, v) in stack.iter().enumerate() {
+                print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
+            }
+            println!("]");
+
+            if debug_pause == 0 {
+                print!("{} ", ">".repeat(40));
+                std::io::stdout().flush().unwrap();
+                buffer.clear();
+                std::io::stdin().read_line(&mut buffer).unwrap();
+                debug_pause = buffer.trim().parse().unwrap_or(1) - 1;
+            } else {
+                println!("{} ", ">".repeat(40));
+                debug_pause -= 1;
+            }
         }
 
         debug_assert!(instructions.len() > frame.ip);

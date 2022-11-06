@@ -10,6 +10,7 @@ functie is_even(n) {
 }
 
 als is_even(2) {
+    10
     // print("Ja, 2 is een even getal!");
 } 
 
