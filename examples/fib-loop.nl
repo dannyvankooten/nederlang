@@ -6,7 +6,7 @@ stel fibonacci = functie(n) {
     stel i = 2;
 
     zolang i < n {
-        i = i + 1;
+        i += 1;
         a = b;
         b = c;
         c = a + b;
