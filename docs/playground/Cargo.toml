@@ -2,6 +2,9 @@
 name = "playground"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/dannyvankooten/nederlang"
+license = "MIT"
+description = "An online code playground for the Nederlang programming language."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -10,10 +13,4 @@ crate-type = ["cdylib"]
 [dependencies]
 wasm-bindgen = "0.2.63"
 nederlang = { path = "../.." }
-
-[dependencies.web-sys]
-version = "0.3.60"
-features = [
-  'console'
-]
 

@@ -1,6 +1,12 @@
 {
   "name": "playground",
+  "description": "An online code playground for the Nederlang programming language.",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dannyvankooten/nederlang"
+  },
   "files": [
     "playground_bg.wasm",
     "playground.js",

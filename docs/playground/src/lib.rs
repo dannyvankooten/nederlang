@@ -13,7 +13,6 @@ pub struct NlResponse {
 
 #[wasm_bindgen]
 pub fn nederlang_eval(code: &str) -> NlResponse {
-    // let start = Instant::now();
     match run_str(code) {
         Ok(object) => {
             let result = match object {

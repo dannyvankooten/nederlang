@@ -1,85 +1,18 @@
 <!DOCTYPE html>
-<html lang="en-US">
-  <head>
+<html lang="nl-NL">
+<head>
     <meta charset="utf-8" />
     <title>Nederlang Speeltuin</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { font-family: sans-serif; font-size: 16px; padding: 0.5em; line-height: 1.6; background: #202224; color: #FFF; }
-        .m { margin: 1em 0; }
-        hr.m { display: block; margin: 2em 0; height: 1px; background: #333; border: 0; }
-        #wrapper{ position: relative; height: 400px; width: 100%; margin: 0 1em 1em 0; }
-        h1 { margin: 0; }
-        a { color: rgb(0, 173, 216); }
-        .header { margin-bottom: 1em; }
-        
-        @media(min-width: 600px) {
-            body { padding: 2em; }
-            .header{ display: flex; }
-            .menu {
-                display: flex;
-                flex: 1;
-                flex-wrap: nowrap;
-                justify-content: flex-end;
-                gap: 0.5rem;
-            }
-        }
-        #nl-editor {
-            font-size: 16px;
-            position: absolute;
-            left: 0; top: 0;
-            width: 100%;
-            height: 400px;
-        }
-        button {
-            align-items: center;
-            background-color: rgb(37, 52, 67);
-            border: 1px solid rgb(37, 52, 67);
-            border-radius: 3px;
-            box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 5px 0px;
-            box-sizing: border-box;
-            color: rgb(80, 183, 224);
-            cursor: pointer;
-            font-weight: 700;
-            height: 28px;
-            justify-content: center;
-            line-height: normal;
-            min-width: 65px;
-            padding: 0 1em;
-        }
-        button.busy {
-            cursor: not-allowed;
-        }
-        button.primary {
-            border-color: rgb(0, 173, 216);
-        }
-        select {
-            background-color: rgb(32, 34, 36);
-            border: 1px solid #999;
-            border-radius: 3px;
-            color: rgb(240, 241, 242);
-            height: 28px;
-        }
-        .muted {
-            color: #AAA;
-            font-size: 14px;
-            font-style: italic;
-        }
-
-        footer {
-            font-size: 14px;
-            color: #EEE;
-            margin-top: 4em;
-            padding-top: 2em;
-            border-top: 1px solid #333;
-        }
-    </style>
-  </head>
-  <body>
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
     <header class="header">
-        <div class="title"><h1>Nederlang speeltuin</h1></div>
+        <div class="title">
+            <h1>Nederlang speeltuin</h1>
+        </div>
         <div class="menu">
-            <button type="button" id="nl-execute" class="primary">Uitvoeren</button> 
+            <button type="button" id="nl-execute" class="primary">Uitvoeren</button>
             <button type="button" id="nl-share">Delen</button>
             <select id="nl-preset" autocomplete="off">
                 <option value="voorbeeld" selected>Voorbeeld</option>
@@ -88,142 +21,18 @@
             </select>
         </div>
     </header>
-    
-    
-    <div id="wrapper">
-        <div id="nl-editor"></div>
+    <div class="editor-container">
+        <div class="editor" id="nl-editor"></div>
     </div>
-    <div class="m">
-</div>
-<div id="nl-result" class="m"></div>    
-<footer>
-    <p>Dit is de online speeltuin voor de <a href="https://github.com/dannyvankooten/nederlang">Nederlang</a> programmeertaal.</p>
-</footer>
+    <div id="nl-result" class="m"></div>
+    <footer>
+        <p>Dit is de online speeltuin voor de <a href="https://github.com/dannyvankooten/nederlang">Nederlang</a>
+            programmeertaal.</p>
+        <p>Met ❤ gemaakt door <a href="https://dannyvankooten.com">Danny van Kooten</a>.</p>
+    </footer>
 
-<script src="deps/ace.js" type="text/javascript" charset="utf-8"></script>
-<script>
-    const editor = ace.edit("nl-editor");
-    editor.setTheme("ace/theme/nord_dark");
+    <script src="assets/ace.js" type="text/javascript" charset="utf-8"></script>
+    <script src="assets/app.js" type="text/javascript" charset="utf-8"></script>
+</body>
 
-    // populate code editor on window.load
-    window.addEventListener('load', function() {
-        if (window.location.hash.startsWith('#code=')) {
-            let code = window.location.hash.substring("#code".length + 1);
-            code = window.decodeURIComponent(code);
-            editor.setValue(code);
-            window.location.hash = '';
-        } else {
-            const code = document.getElementById('nl-preset-voorbeeld').content.textContent.trim();
-            editor.setValue(code);
-        }
-    })
-
-    const myWorker = new Worker('worker.js');
-    const executeButton = document.getElementById('nl-execute');
-    const resultElement = document.getElementById('nl-result');
-
-    myWorker.onmessage = (e) => {
-        let [success, message, elapsed_time] = e.data;
-        if (success) {
-            message = `<div><strong>Resultaat: </strong> ${message}</div>`
-            message += `<div class="m muted">Programma was bezig voor <strong>${elapsed_time}</strong> ms.</div>`
-            resultElement.innerHTML = message;
-        } else {
-            let pos = message.indexOf(':');
-            message = '<strong>' + message.substring(0, pos) + ':</strong> ' + message.substring(pos+1);
-            resultElement.innerHTML = message;
-        }
-
-        executeButton.disabled = false;
-        executeButton.classList.remove('busy');
-    }
-    
-    executeButton.addEventListener('click', function(evt) {
-        evt.preventDefault();
-
-        resultElement.innerHTML = '<div class="m muted">Bezig...</div>';
-        executeButton.disabled = true;
-        executeButton.classList.add('busy');
-    
-        let code = editor.getValue();
-        myWorker.postMessage(code);
-    })
-
-    document.getElementById('nl-share').addEventListener('click', function(evt) {
-        evt.preventDefault();
-        let code = editor.getValue();
-        window.location.hash = 'code=' + window.encodeURIComponent(code);
-        window.prompt("You can share this code snippet using the following URL", window.location);
-    })
-
-    document.getElementById('nl-preset').addEventListener('change', function() {
-        let code = document.getElementById("nl-preset-" + this.value);
-        editor.setValue(code.content.textContent.trim());
-    })
-</script>
-
-<!-- Voorbeeld programma's volgen hieronder -->
-<template id="nl-preset-voorbeeld">
-// Variabelen declareer je met "stel"
-stel a = 1;
-
-// Eenmaal gedeclareerde variabelen kun je een nieuwe waarde toeschrijven:
-a = 2;
-
-// Functies:
-functie is_even(n) {
-    n % 2 == 0
-}
-
-als is_even(2) {
-    10
-    // print("Ja, 2 is een even getal!");
-} 
-
-stel b = als nee { 1 } anders { 2 }
-
-als b == 2 {
-    b = b + 1;
-}
-
-zolang b > 0 {
-    b = b - 1
-
-    als b == 1 {
-        stop
-    }
-}
-b
-</template>
-<template id="nl-preset-fib-rec">
-functie fib(n) {
-    als n < 2 {
-        antwoord n
-    } 
-
-    fib(n - 1) + fib(n - 2)
-}
-
-fib(35)
-</template>
-<template id="nl-preset-fib-loop">
-stel fibonacci = functie(n) {
-    stel a = 0;
-    stel b = 1;
-    stel c = a + b;
-    stel i = 2;
-
-    zolang i < n {
-        i = i + 1;
-        a = b;
-        b = c;
-        c = a + b;
-    }
-
-    antwoord c;
-}
-
-fibonacci(35);
-</template>
-  </body>
 </html>
