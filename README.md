@@ -49,8 +49,8 @@ De standaard wiskundige rekenregels gelden voor expressies:
 1 + 1 * 2 - 3 / 3 % 2   // => 0
 !ja                     // => nee
 1 > 5                   // => nee
-1 > 5 of 5 > 1          // => ja
-(1 > 2 en 2 > 1) of ja  // => ja
+1 > 5 || 5 > 1          // => ja
+(1 > 2 && 2 > 1) || ja  // => ja
 ```
 
 ### Variabelen

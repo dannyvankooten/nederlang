@@ -54,12 +54,12 @@ fn test_infix_expression() {
 
 #[test]
 fn test_logical_andor() {
-    assert_eq!(run_str("ja en ja"), Ok(NlObject::Bool(true)));
-    assert_eq!(run_str("ja en nee"), Ok(NlObject::Bool(false)));
-    assert_eq!(run_str("nee en nee"), Ok(NlObject::Bool(false)));
-    assert_eq!(run_str("nee of nee"), Ok(NlObject::Bool(false)));
-    assert_eq!(run_str("nee of ja"), Ok(NlObject::Bool(true)));
-    assert_eq!(run_str("1 > 0 of 0 > 1"), Ok(NlObject::Bool(true)));
+    assert_eq!(run_str("ja && ja"), Ok(NlObject::Bool(true)));
+    assert_eq!(run_str("ja && nee"), Ok(NlObject::Bool(false)));
+    assert_eq!(run_str("nee && nee"), Ok(NlObject::Bool(false)));
+    assert_eq!(run_str("nee || nee"), Ok(NlObject::Bool(false)));
+    assert_eq!(run_str("nee || ja"), Ok(NlObject::Bool(true)));
+    assert_eq!(run_str("1 > 0 || 0 > 1"), Ok(NlObject::Bool(true)));
 }
 
 #[test]

@@ -19,10 +19,7 @@ pub(crate) enum Token<'a> {
     Func,
     /// "zolang"
     While,
-    /// "en"
-    And,
-    /// "of"
-    Or,
+
     /// "stel"
     Declare,
     /// "waar"
@@ -43,6 +40,11 @@ pub(crate) enum Token<'a> {
     Eq,
     /// "!="
     Neq,
+    /// "&&"
+    And,
+    /// "||"
+    Or,
+
     // TODO! Tokenize these separately? Or leave it up to parser?
     // /// "+="
     // PlusAssign,
@@ -164,13 +166,11 @@ impl<'a> From<&'a str> for Token<'a> {
     fn from(value: &'a str) -> Self {
         match value {
             "als" => If,
-            "of" => Or,
             "antwoord" => Return,
             "zolang" => While,
             "anders" => Else,
             "functie" => Func,
             "stel" => Declare,
-            "en" => And,
             "ja" => True,
             "nee" => False,
             "volgende" => Continue,
@@ -266,7 +266,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                     Slash
                 }
             }
-
+            '&' if self.peek() == Some('&') => And,
+            '|' if self.peek() == Some('|') => Or,
             // One-symbol tokens.
             ';' => Semi,
             ',' => Comma,
@@ -290,7 +291,7 @@ impl<'a> Iterator for Tokenizer<'a> {
         // If we parsed a multi-char token,
         // bump iterator appropriate number of times
         match token {
-            Eq | Neq | Gte | Lte => self.bump(),
+            Eq | Neq | Gte | Lte | And | Or => self.bump(),
             _ => None,
         };
 
@@ -394,6 +395,8 @@ mod tests {
             ("5 > 10", vec![Int("5"), Gt, Int("10")]),
             ("5 == 10", vec![Int("5"), Eq, Int("10")]),
             ("5 != 10", vec![Int("5"), Neq, Int("10")]),
+            ("ja && ja", vec![True, And, True]),
+            ("ja || ja", vec![True, Or, True]),
         ] {
             let tokenizer = Tokenizer::new(input);
             assert_eq!(
@@ -407,11 +410,9 @@ mod tests {
 
     #[test]
     fn tokenize_keywords() {
-        let mut tokenizer = Tokenizer::new("als anders en of antwoord functie stel stop volgende");
+        let mut tokenizer = Tokenizer::new("als anders antwoord functie stel stop volgende");
         assert_eq!(tokenizer.next(), Some(If));
         assert_eq!(tokenizer.next(), Some(Else));
-        assert_eq!(tokenizer.next(), Some(And));
-        assert_eq!(tokenizer.next(), Some(Or));
         assert_eq!(tokenizer.next(), Some(Return));
         assert_eq!(tokenizer.next(), Some(Func));
         assert_eq!(tokenizer.next(), Some(Declare));
