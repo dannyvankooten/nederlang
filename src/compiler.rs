@@ -208,12 +208,16 @@ impl Compiler {
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
+        if stmts.len() == 0 {
+            self.add_instruction(OpCode::Null, 0);
+            return Ok(());
+        }
+
         self.symbols.enter_scope();
         for s in stmts {
             self.compile_statement(s)?;
         }
         self.symbols.leave_scope();
-
         Ok(())
     }
 
@@ -417,6 +421,7 @@ impl Compiler {
                 self.compile_expression(&expr.condition)?;
                 let pos_jump_before_consequence =
                     self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
+
                 self.compile_block_statement(&expr.consequence)?;
                 self.remove_last_instruction_if(OpCode::Pop);
 
@@ -681,8 +686,8 @@ mod tests {
         let ast = parse(program).unwrap();
         let code = Program::new(&ast).unwrap();
         assert_eq!(
-            expected,
             bytecode_to_human(&code.instructions, false),
+            expected,
             "\nInput: \t{program}\nBytecode: \t{}",
             bytecode_to_human(&code.instructions, true)
         );
@@ -759,6 +764,27 @@ mod tests {
         assert_bytecode_eq(
             "als ja { 1 } anders { 2 }",
             "True JumpIfFalse(10) Const(0) Jump(13) Const(1) Pop Halt",
+        );
+    }
+
+    #[test]
+    fn test_if_expression_empty_body() {
+        assert_bytecode_eq(
+            "als ja { }",
+            "True JumpIfFalse(8) Null Jump(9) Null Pop Halt",
+        );
+
+        assert_bytecode_eq(
+            "als ja { } anders { 1 }",
+            "True JumpIfFalse(8) Null Jump(11) Const(0) Pop Halt",
+        );
+    }
+
+    #[test]
+    fn test_if_expression_empty_else() {
+        assert_bytecode_eq(
+            "als ja { 1 } anders {}",
+            "True JumpIfFalse(10) Const(0) Jump(11) Null Pop Halt",
         );
     }
 

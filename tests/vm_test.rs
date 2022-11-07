@@ -76,6 +76,16 @@ fn test_not_values() {
 }
 
 #[test]
+fn test_empty_block_statement() {
+    assert_eq!(run_str("{}"), Ok(NlObject::Null));
+}
+
+#[test]
+fn test_empty_while() {
+    assert_eq!(run_str("zolang nee {}"), Ok(NlObject::Null));
+}
+
+#[test]
 fn test_if_expression() {
     assert_eq!(run_str("als ja { 1 }"), Ok(NlObject::Int(1)));
     assert_eq!(run_str("als nee { 1 }"), Ok(NlObject::Null));
@@ -89,6 +99,12 @@ fn test_if_expression_with_else() {
         run_str("als nee { 1 } anders als nee { 2 } anders { 3 + 3 }"),
         Ok(NlObject::Int(6))
     );
+}
+
+#[test]
+fn test_if_expression_with_empy_body() {
+    assert_eq!(run_str("als ja { }"), Ok(NlObject::Null));
+    assert_eq!(run_str("als nee { } anders { 1 }"), Ok(NlObject::Int(1)));
 }
 
 #[test]
@@ -153,6 +169,11 @@ fn test_assignments() {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), expected_result, "test program: {program}")
     }
+}
+
+#[test]
+fn test_op_assign() {
+    assert_eq!(run_str("stel a = 0; a += 5"), Ok(NlObject::Int(5)));
 }
 
 #[test]
