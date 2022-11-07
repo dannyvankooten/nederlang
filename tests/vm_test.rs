@@ -295,6 +295,42 @@ fn test_break_statement() {
         run_str("stel a = 0; zolang a < 10 { a = a + 1; als a == 5 { stop } } a"),
         Ok(NlObject::Int(5))
     );
+
+    assert_eq!(
+        run_str(
+            "
+        stel x = 0;
+        stel y = 0;
+        zolang x < 100 {
+            x += 1
+
+            als x == 2 {
+                volgende;
+            }
+
+            als x == 4 {
+                volgende;
+            }
+
+            als x == 6 {
+                stop;
+            }
+
+            stel z = 0;
+            zolang z < 3 {
+                als z == 2 {
+                    stop;
+                }
+
+                y += z;
+                z += 1;               
+            }            
+        }
+        y
+        "
+        ),
+        Ok(NlObject::Int(3))
+    );
 }
 
 #[test]

@@ -4,5 +4,5 @@ build: pkg/playground.js
 clean:
 	rm -r pkg/
 
-pkg/playground.js: src/lib.rs
+pkg/playground.js: src/lib.rs 
 	wasm-pack build --target=no-modules

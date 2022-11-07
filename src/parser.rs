@@ -322,7 +322,7 @@ impl<'a> Parser<'a> {
             Token::OpenBracket => self.parse_array_expr()?,
             _ => {
                 return Err(ParseError::SyntaxError(format!(
-                    "Unsupported expression type: {:?}",
+                    "Unexpected token. Expected expression, got {:?}",
                     self.current_token
                 )))
             }

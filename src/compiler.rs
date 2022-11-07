@@ -113,13 +113,31 @@ impl OpCode {
     }
 }
 
+struct LoopContext {
+    /// Points to the first instruction of the loop condition
+    /// This is where continue statements should jump to
+    start: usize,
+
+    /// Points to the first instruction after the loop
+    /// This is where break statements should jump to
+    break_instructions: Vec<usize>,
+}
+
+impl LoopContext {
+    fn new(start: usize) -> Self {
+        Self {
+            start,
+            break_instructions: Vec::new(),
+        }
+    }
+}
+
 pub(crate) struct Compiler {
     symbols: SymbolTable,
     constants: Vec<NlObject>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
-    tmp_break_stmt: Option<usize>,
-    tmp_continue_stmt: Option<usize>,
+    loop_contexts: Vec<LoopContext>,
 }
 
 impl Compiler {
@@ -129,8 +147,7 @@ impl Compiler {
             instructions: Vec::with_capacity(64),
             constants: Vec::with_capacity(64),
             last_instruction: None,
-            tmp_break_stmt: None,
-            tmp_continue_stmt: None,
+            loop_contexts: Vec::new(),
         }
     }
 
@@ -208,6 +225,8 @@ impl Compiler {
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
+        // if block statement does not contain any other statements or expressions
+        // simply push a NULL onto the stack
         if stmts.len() == 0 {
             self.add_instruction(OpCode::Null, 0);
             return Ok(());
@@ -246,12 +265,26 @@ impl Compiler {
             Stmt::Break => {
                 self.add_instruction(OpCode::Null, 0);
                 let ip = self.add_instruction(OpCode::Jump, JUMP_PLACEHOLDER_BREAK);
-                self.tmp_break_stmt = Some(ip);
+
+                let ctx = match self.loop_contexts.iter_mut().last() {
+                    Some(ctx) => ctx,
+                    None => return Err(Error::SyntaxError(format!("Foutief gebruik van 'stop'."))),
+                };
+                ctx.break_instructions.push(ip);
             }
             Stmt::Continue => {
                 self.add_instruction(OpCode::Null, 0);
-                let ip = self.add_instruction(OpCode::Jump, JUMP_PLACEHOLDER_CONTINUE);
-                self.tmp_continue_stmt = Some(ip);
+
+                match self.loop_contexts.iter().last() {
+                    Some(ctx) => {
+                        self.add_instruction(OpCode::Jump, ctx.start);
+                    }
+                    None => {
+                        return Err(Error::SyntaxError(format!(
+                            "Foutief gebruik van 'volgende'."
+                        )))
+                    }
+                }
             }
         }
 
@@ -449,7 +482,10 @@ impl Compiler {
                 );
             }
             Expr::While(expr) => {
+                // TODO: Can we get rid of this now that empty block statement emit a NULL?
                 self.add_instruction(OpCode::Null, 0);
+                self.loop_contexts
+                    .push(LoopContext::new(self.instructions.len()));
                 let pos_before_condition = self.instructions.len();
                 self.compile_expression(&expr.condition)?;
 
@@ -465,23 +501,17 @@ impl Compiler {
 
                 self.add_instruction(OpCode::Jump, pos_before_condition);
 
-                // End of the statement's body
-                // This is where we should jump to if condition evaluated to false
-                // Or when the body had a Stmt::Break
-                let pos_after_body = self.instructions.len();
+                // Update jump statement for when initial condition evaluated to false (should skip over entire loop)
                 self.change_instruction_operand_at(
                     OpCode::JumpIfFalse,
                     pos_jump_if_false,
-                    pos_after_body,
+                    self.instructions.len(),
                 );
 
-                if let Some(pos) = self.tmp_break_stmt {
-                    self.change_instruction_operand_at(OpCode::Jump, pos, pos_after_body);
-                    self.tmp_break_stmt = None;
-                }
-                if let Some(pos) = self.tmp_continue_stmt {
-                    self.change_instruction_operand_at(OpCode::Jump, pos, pos_before_condition);
-                    self.tmp_continue_stmt = None;
+                // Update jump statements for every break statement inside this loop
+                let ctx = self.loop_contexts.pop().unwrap();
+                for ip in ctx.break_instructions {
+                    self.change_instruction_operand_at(OpCode::Jump, ip, self.instructions.len());
                 }
             }
             Expr::Function(fn_name, parameters, body) => {

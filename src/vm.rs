@@ -2,6 +2,8 @@ use crate::compiler::{OpCode, Program};
 use crate::object::Error;
 use crate::object::NlObject;
 use crate::parser::parse;
+
+#[cfg(feature = "debug")]
 use std::io::Write;
 use std::ptr;
 
@@ -69,9 +71,6 @@ fn run(program: Program) -> Result<NlObject, Error> {
         println!("{:16}= {:?}", "Constants", program.constants);
     }
 
-    // Buffer used to capture input from stdin during stepped debugging
-    let mut buffer = String::new();
-
     // Syntactic sugar
     let instructions = program.instructions;
     let constants = program.constants;
@@ -108,7 +107,12 @@ fn run(program: Program) -> Result<NlObject, Error> {
         return Ok(result);
     }
 
+    #[cfg(feature = "debug")]
     let mut debug_pause = 0;
+
+    #[cfg(feature = "debug")]
+    // Buffer used to capture input from stdin during stepped debugging
+    let mut buffer = String::new();
 
     loop {
         #[cfg(feature = "debug")]
