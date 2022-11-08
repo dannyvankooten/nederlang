@@ -5,7 +5,7 @@ functie probleem_1() {
     stel i = 1
 
     zolang i < 1000 {
-        als i % 3 == 0 of i % 5 == 0 {
+        als i % 3 == 0 || i % 5 == 0 {
             som += i
         }
 

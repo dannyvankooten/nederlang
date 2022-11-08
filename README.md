@@ -165,7 +165,7 @@ als 1 + 1 == 2 {
 ```
 stel aantal = 5
 zolang aantal > 0 {
-    aantal = aantal - 1
+    aantal -= 1
 }
 ```
 
@@ -174,7 +174,7 @@ Om onder voorwaarde uit een loop te stappen gebruik je `stop`:
 ```
 stel aantal = 1
 zolang ja {
-    aantal = aantal + 1
+    aantal += 1
 
     als aantal == 100 {
         stop
@@ -193,6 +193,9 @@ zolang n < 10 {
     }
 
     // n is een even getal
+    // print(n)
+
+    n += 1
 }
 ```
 

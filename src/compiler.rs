@@ -69,7 +69,6 @@ pub(crate) enum OpCode {
 
 const IP_PLACEHOLDER: usize = 99999;
 const JUMP_PLACEHOLDER_BREAK: usize = 9999 + 1;
-const JUMP_PLACEHOLDER_CONTINUE: usize = 9999 + 2;
 
 impl From<u8> for OpCode {
     #[inline(always)]
@@ -114,12 +113,12 @@ impl OpCode {
 }
 
 struct LoopContext {
-    /// Points to the first instruction of the loop condition
+    /// Points to the first instruction of the (current) loop condition
     /// This is where continue statements should jump to
     start: usize,
 
-    /// Points to the first instruction after the loop
-    /// This is where break statements should jump to
+    /// Stores the index of all JUMP instructions within the current loop context that originate from a break statement
+    /// Once this loop context ends, these instructions should have their operands updated to the first instruction that follows this loop
     break_instructions: Vec<usize>,
 }
 

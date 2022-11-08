@@ -18,17 +18,21 @@ fn test_examples() {
 
         let handle = thread::spawn(move || {
             let program = fs::read_to_string(&path).unwrap();
+            let result = run_str(&program);
             assert!(
-                run_str(&program).is_ok(),
-                "sample program {} returned an error",
-                path.display()
+                result.is_ok(),
+                "sample program {} returned an error: {:?}",
+                path.display(),
+                result.unwrap_err()
             );
         });
         threads.push(handle);
     }
 
     for t in threads {
-        let _ = t.join();
+        if let Err(e) = t.join() {
+            panic!("{:?}", e);
+        }
     }
 }
 

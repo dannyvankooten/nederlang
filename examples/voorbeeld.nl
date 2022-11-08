@@ -17,14 +17,15 @@ als is_even(2) {
 stel b = als nee { 1 } anders { 2 }
 
 als b == 2 {
-    b = b + 1;
+    b += 1
 }
 
 zolang b > 0 {
-    b = b - 1
+    b -= 1
 
     als b == 1 {
         stop
     }
 }
+
 b
