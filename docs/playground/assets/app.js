@@ -75,7 +75,7 @@ als is_even(2) {
     // print("Ja, 2 is een even getal!");
 }
 
-stel b = als nee { 1 } anders { 2 }
+stel b = als (nee || ja) { 1 } anders { 2 }
 
 als b == 2 {
     b = b + 1;
@@ -129,7 +129,7 @@ functie probleem_1() {
     stel i = 1
 
     zolang i < 1000 {
-        als i % 3 == 0 of i % 5 == 0 {
+        als i % 3 == 0 || i % 5 == 0 {
             som += i
         }
 
