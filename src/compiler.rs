@@ -580,7 +580,11 @@ impl Compiler {
 
     fn add_constant(&mut self, obj: Object) -> usize {
         // re-use already defined constants
-        if let Some(pos) = self.constants.iter().position(|c| c == &obj) {
+        if let Some(pos) = self
+            .constants
+            .iter()
+            .position(|c| c.tag() == obj.tag() && c == &obj)
+        {
             return pos;
         }
 
@@ -763,10 +767,10 @@ mod tests {
     #[test]
     fn test_float_expression() {
         assert_eq!(run("1.23"), "Const(0) Pop Halt");
-        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(1) Pop Halt");
+        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(0) Pop Halt");
         assert_eq!(
             run("5.00; 6.00; 5.00"),
-            "Const(0) Pop Const(1) Pop Const(2) Pop Halt"
+            "Const(0) Pop Const(1) Pop Const(0) Pop Halt"
         );
     }
 

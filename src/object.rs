@@ -1,4 +1,5 @@
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use std::cmp::Ordering;
 use std::fmt::{Display, Write};
 use std::ptr::drop_in_place;
 use std::string::String as RString;
@@ -12,10 +13,6 @@ pub enum Error {
 }
 
 /// A macro for initialising a struct field (without dropping the original default value)
-///
-/// # Examples
-///
-//     init!(obj.value => String::new());
 macro_rules! init {
     ($field: expr => $value: expr) => {
         unsafe {
@@ -60,7 +57,7 @@ pub enum Type {
 }
 
 // Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, float, int)
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug)]
 pub struct Object(*mut u8);
 unsafe impl Sync for Object {}
 unsafe impl Send for Object {}
@@ -132,14 +129,20 @@ impl Object {
         unsafe { &mut self.get_mut::<Array>().value }
     }
 
+    /// Returns the pointer stored in this object
+    /// This can return a non-valid address if called on a non-heap allocated object value.
     fn as_ptr(self) -> *mut u8 {
         (self.0 as usize & PTR_MASK) as _
     }
 
+    /// Get a reference to the value this object points to
+    /// It is up to the caller to ensure the object is actually heap-allocated and points to a valid memory location.
     unsafe fn get<'a, T>(self) -> &'a T {
         &*(self.as_ptr() as *const T)
     }
 
+    /// Get a mutable reference to the value this object points to
+    /// It is up to the caller to ensure the object is actually heap-allocated and points to a valid memory location.
     unsafe fn get_mut<'a, T>(self) -> &'a mut T {
         &mut *(self.as_ptr() as *mut T)
     }
@@ -148,6 +151,36 @@ impl Object {
     /// But points to a heap allocated type (like NlFloat, NlString or NlArray)
     pub fn is_heap_allocated(self) -> bool {
         self.0 as usize & TAG_MASK >= Type::Float as usize
+    }
+}
+
+impl PartialEq for Object {
+    fn eq(&self, other: &Self) -> bool {
+        debug_assert_eq!(self.tag(), other.tag());
+
+        match self.tag() {
+            Type::Null | Type::Bool | Type::Int => self.as_int() == other.as_int(),
+            Type::Float => unsafe { self.as_f64() == other.as_f64() },
+            Type::String => unsafe { self.as_str() == other.as_str() },
+            Type::Array => {
+                unimplemented!("Can not yet compare objects of type array")
+            }
+        }
+    }
+}
+
+impl PartialOrd for Object {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        debug_assert_eq!(self.tag(), other.tag());
+
+        match self.tag() {
+            Type::Null | Type::Bool | Type::Int => self.as_int().partial_cmp(&other.as_int()),
+            Type::Float => unsafe { self.as_f64().partial_cmp(&other.as_f64()) },
+            Type::String => unsafe { self.as_str().partial_cmp(other.as_str()) },
+            Type::Array => {
+                unimplemented!("Can not yet compare objects of type array")
+            }
+        }
     }
 }
 
@@ -192,7 +225,6 @@ impl From<Vec<Object>> for Object {
     }
 }
 
-#[derive(Debug)]
 #[repr(C)]
 struct Header {
     marked: bool,
@@ -204,7 +236,6 @@ impl Header {
     }
 }
 
-#[derive(Debug)]
 #[repr(C)]
 struct Float {
     header: Header,
@@ -230,7 +261,6 @@ impl Float {
     }
 }
 
-#[derive(Debug)]
 #[repr(C)]
 struct String {
     header: Header,
@@ -285,7 +315,7 @@ impl Array {
         ptr
     }
 
-    /// Creates a new Pointer object pointing to a NlArray
+    /// Creates a new Pointer object pointing to Array
     fn from_slice(slice: &[Object]) -> Object {
         Self::from_vec(slice.to_vec())
     }
@@ -349,11 +379,17 @@ macro_rules! impl_arith {
     ($func_name:ident, $op:tt) => {
         #[inline]
         pub fn $func_name(self, rhs: Self) -> Result<Object, Error> {
-            let result = match (self.tag(), rhs.tag()) {
-                (Type::Int, Type::Int) => Object::from(self.as_int() $op rhs.as_int()),
-                (Type::Float, Type::Float) => Object::from(unsafe{ self.as_f64() $op rhs.as_f64() }),
-                _ => return Err(Error::TypeError(format!("Can not {} objects of type {} and {}", stringify!($op), self.tag(), rhs.tag())))
+
+            if self.tag() != rhs.tag() {
+                return Err(Error::TypeError(format!("Can not {} objects of different type {} and {}", stringify!($op), self.tag(), rhs.tag())))
+            }
+
+            let result = match self.tag() {
+                Type::Int => Object::from(self.as_int() $op rhs.as_int()),
+                Type::Float => Object::from(unsafe{ self.as_f64() $op rhs.as_f64() }),
+                _ => return Err(Error::TypeError(format!("Can not {} on objects of type {}", stringify!($op), self.tag()))),
             };
+
             Ok(result)
         }
     };
@@ -372,7 +408,6 @@ macro_rules! impl_logical {
     };
 }
 
-// TODO: For heap-allocated objects, this currently does a pointer comparison (instead of checking the actual value)
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
         #[inline]
@@ -381,13 +416,8 @@ macro_rules! impl_cmp {
                 return Err(Error::TypeError(format!("Can not compare objects of type {} and {}", self.tag(), rhs.tag())));
             }
 
-            let result = match self.tag() {
-                // Safety: We've matched on the object type
-                Type::Float => unsafe { self.as_f64() $op rhs.as_f64() },
-                Type::String => unsafe { self.as_str() $op rhs.as_str() },
-                _ => self $op rhs,
-            };
-            Ok(Object::from(result))
+            // Delegate actual comparison to PartialOrd/PartialEq implementation
+            Ok(Object::from(self $op rhs,))
         }
     };
 }
