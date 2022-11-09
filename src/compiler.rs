@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use crate::ast::*;
 use crate::object::Error;
-use crate::object::NlObject;
+use crate::object::Object;
 use crate::symbols::*;
 
 macro_rules! byte {
@@ -133,7 +133,7 @@ impl LoopContext {
 
 pub(crate) struct Compiler {
     symbols: SymbolTable,
-    constants: Vec<NlObject>,
+    constants: Vec<Object>,
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
     loop_contexts: Vec<LoopContext>,
@@ -318,7 +318,7 @@ impl Compiler {
         const_value: &ExprInt,
         operator: &Operator,
     ) -> Result<(), Error> {
-        let idx_constant = self.add_constant(NlObject::Int(const_value.value));
+        let idx_constant = self.add_constant(Object::from(const_value.value));
         let symbol = self.symbols.resolve(varname);
         match symbol {
             Some(symbol) => {
@@ -360,11 +360,15 @@ impl Compiler {
                 }
             }
             Expr::Float(expr) => {
-                let idx = self.add_constant(NlObject::Float(expr.value));
+                let idx = self.add_constant(Object::from(expr.value));
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Int(expr) => {
-                let idx = self.add_constant(NlObject::Int(expr.value));
+                let idx = self.add_constant(Object::from(expr.value));
+                self.add_instruction(OpCode::Const, idx);
+            }
+            Expr::String(expr) => {
+                let idx = self.add_constant(Object::from(expr.value.clone()));
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Identifier(name) => {
@@ -545,10 +549,9 @@ impl Compiler {
 
                 // Switch back to previous scope again
                 let num_locals = self.symbols.leave_context() as u8;
-                let idx = self.add_constant(NlObject::CompiledFunctionPointer(
-                    pos_start_function as u16,
-                    num_locals,
-                ));
+                let info = (pos_start_function << 16) as u32 + num_locals as u32;
+                let idx = self.add_constant(Object::from(info as i64));
+
                 self.add_instruction(OpCode::Const, idx);
 
                 // If this function received a name, define it in the scope
@@ -575,7 +578,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn add_constant(&mut self, obj: NlObject) -> usize {
+    fn add_constant(&mut self, obj: Object) -> usize {
         // re-use already defined constants
         if let Some(pos) = self.constants.iter().position(|c| c == &obj) {
             return pos;
@@ -588,7 +591,7 @@ impl Compiler {
 }
 
 pub(crate) struct Program {
-    pub(crate) constants: Vec<NlObject>,
+    pub(crate) constants: Vec<Object>,
     pub(crate) instructions: Vec<u8>,
 }
 
@@ -760,10 +763,10 @@ mod tests {
     #[test]
     fn test_float_expression() {
         assert_eq!(run("1.23"), "Const(0) Pop Halt");
-        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(0) Pop Halt");
+        assert_eq!(run("1.23; 1.23"), "Const(0) Pop Const(1) Pop Halt");
         assert_eq!(
             run("5.00; 6.00; 5.00"),
-            "Const(0) Pop Const(1) Pop Const(0) Pop Halt"
+            "Const(0) Pop Const(1) Pop Const(2) Pop Halt"
         );
     }
 

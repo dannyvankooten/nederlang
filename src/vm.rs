@@ -1,6 +1,6 @@
 use crate::compiler::{OpCode, Program};
 use crate::object::Error;
-use crate::object::NlObject;
+use crate::object::{Object, Type};
 use crate::parser::parse;
 
 #[cfg(feature = "debug")]
@@ -36,7 +36,7 @@ struct Frame {
 /// This yields a ~25% performance improvement.
 /// As an aside, removing any of the other bound check related to working with the stack does not seen to yield significant performance improvements.
 #[inline]
-fn pop(slice: &mut Vec<NlObject>) -> NlObject {
+fn pop(slice: &mut Vec<Object>) -> Object {
     debug_assert!(!slice.is_empty());
 
     // Safety: slice is never empty, opcodes that push items on the stack always come before anything that pops
@@ -54,13 +54,13 @@ impl Frame {
     }
 }
 
-pub fn run_str(program: &str) -> Result<NlObject, Error> {
+pub fn run_str(program: &str) -> Result<Object, Error> {
     let ast = parse(program)?;
     let program = Program::new(&ast)?;
     run(program)
 }
 
-fn run(program: Program) -> Result<NlObject, Error> {
+fn run(program: Program) -> Result<Object, Error> {
     #[cfg(feature = "debug")]
     {
         println!("Bytecode (raw)= \n{:?}", &program.instructions);
@@ -79,7 +79,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
     let mut stack = Vec::with_capacity(64);
     let mut globals = Vec::with_capacity(8);
     let mut frames = Vec::with_capacity(32);
-    let mut result = NlObject::Null;
+    let mut result = Object::null();
 
     frames.push(Frame::new(0, 0));
     let mut frame = frames.iter_mut().last().unwrap();
@@ -88,7 +88,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
         ($op:tt) => {{
             let right = pop(&mut stack);
             let left = pop(&mut stack);
-            let result = left.$op(&right)?;
+            let result = left.$op(right)?;
             stack.push(result);
             frame.ip += 1;
         }};
@@ -98,7 +98,8 @@ fn run(program: Program) -> Result<NlObject, Error> {
         ($op:tt) => {{
             let left = stack[frame.base_pointer + read_u8_operand!(instructions, frame.ip)];
             let right = constants[read_u8_operand!(instructions, frame.ip + 1)];
-            stack.push(left.$op(&right)?);
+            let result = left.$op(right)?;
+            stack.push(result);
             frame.ip += 3;
         }};
     }
@@ -162,7 +163,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 let idx = read_u8_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
                 while globals.len() <= idx {
-                    globals.push(NlObject::Null);
+                    globals.push(Object::null());
                 }
                 globals[idx] = value;
                 frame.ip += 2;
@@ -190,7 +191,12 @@ fn run(program: Program) -> Result<NlObject, Error> {
             }
             OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
-                if condition.is_truthy() {
+                let evaluation = match condition.tag() {
+                    Type::Bool => condition.as_bool(),
+                    Type::Int => condition.as_int() > 0,
+                    _ => panic!("YOLO TO THE BONE!"),
+                };
+                if evaluation == true {
                     frame.ip += 3;
                 } else {
                     frame.ip = read_u16_operand!(instructions, frame.ip);
@@ -201,15 +207,15 @@ fn run(program: Program) -> Result<NlObject, Error> {
                 frame.ip += 1;
             }
             OpCode::Null => {
-                stack.push(NlObject::Null);
+                stack.push(Object::null());
                 frame.ip += 1;
             }
             OpCode::True => {
-                stack.push(NlObject::Bool(true));
+                stack.push(Object::from(true));
                 frame.ip += 1;
             }
             OpCode::False => {
-                stack.push(NlObject::Bool(false));
+                stack.push(Object::from(false));
                 frame.ip += 1;
             }
             OpCode::Add => impl_binary_op_method!(add),
@@ -227,27 +233,40 @@ fn run(program: Program) -> Result<NlObject, Error> {
             OpCode::Or => impl_binary_op_method!(or),
             OpCode::Not => {
                 let left = pop(&mut stack);
-                let result = left.not()?;
+                assert_eq!(left.tag(), Type::Bool);
+                let result = Object::from(!left.as_bool());
                 stack.push(result);
                 frame.ip += 1;
             }
             OpCode::Negate => {
                 let left = pop(&mut stack);
-                let result = left.neg()?;
+                let result = match left.tag() {
+                    Type::Float => unsafe { Object::from(-left.as_f64()) },
+                    Type::Int => Object::from(-left.as_int()),
+                    _ => {
+                        return Err(Error::TypeError(format!(
+                            "Can not negate object of type {}",
+                            left.tag()
+                        )))
+                    }
+                };
                 stack.push(result);
                 frame.ip += 1;
             }
             OpCode::Call => {
                 let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
-                let (ip, num_locals) = match pop(&mut stack) {
-                    NlObject::CompiledFunctionPointer(ip, num_locals) => (ip, num_locals),
-                    _ => unimplemented!(),
-                };
+
+                // The last item on the stack is a 61-bit integer:
+                // Last 16 bits contain the number of local variables of the called function
+                // Next 16 bits contains the instruction pointer for where this function is stored
+                let fn_info = pop(&mut stack).as_int();
+                let ip = (fn_info as usize) >> 16;
+                let num_locals = (fn_info & 0x0000FFFF) as u16;
 
                 // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals - num_args as u8 {
-                    stack.push(NlObject::Null);
+                for _ in 0..num_locals - num_args as u16 {
+                    stack.push(Object::null());
                 }
 
                 frame.ip += 1;
@@ -264,7 +283,7 @@ fn run(program: Program) -> Result<NlObject, Error> {
             }
             OpCode::Return => {
                 stack.truncate(frame.base_pointer);
-                stack.push(NlObject::Null);
+                stack.push(Object::null());
                 frames.truncate(frames.len() - 1);
                 frame = frames.iter_mut().last().unwrap();
                 frame.ip += 1;

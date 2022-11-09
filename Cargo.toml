@@ -30,7 +30,3 @@ harness = false
 [[bench]]
 name = "bench_arithmetic"
 harness = false
-
-[[bench]]
-name = "bench_objects"
-harness = false
