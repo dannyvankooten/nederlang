@@ -1,4 +1,7 @@
+use once_cell::sync::Lazy;
+
 use crate::compiler::{OpCode, Program};
+use crate::gc::GC;
 use crate::object::Error;
 use crate::object::{Object, Type};
 use crate::parser::parse;
@@ -55,10 +58,17 @@ impl Frame {
 }
 
 pub fn run_str(program: &str) -> Result<Object, Error> {
+    // Init garbage collector
+    unsafe {
+        GC.init();
+    }
+
     let ast = parse(program)?;
     let program = Program::new(&ast)?;
     run(program)
 }
+
+pub(crate) static mut GC: Lazy<GC> = Lazy::new(|| GC::new());
 
 fn run(program: Program) -> Result<Object, Error> {
     #[cfg(feature = "debug")]
@@ -71,16 +81,17 @@ fn run(program: Program) -> Result<Object, Error> {
         println!("{:16}= {:?}", "Constants", program.constants);
     }
 
-    // Syntactic sugar
+    // Keep your friends close
     let instructions = program.instructions;
     let constants = program.constants;
 
-    // Storage
-    let mut stack = Vec::with_capacity(64);
+    // Init stack, globals, frames & tmp value to store final program result
+    let mut stack = Vec::with_capacity(32);
     let mut globals = Vec::with_capacity(8);
     let mut frames = Vec::with_capacity(32);
-    let mut result = Object::null();
+    let mut final_result = Object::null();
 
+    // Push main frame onto the call stack
     frames.push(Frame::new(0, 0));
     let mut frame = frames.iter_mut().last().unwrap();
 
@@ -105,7 +116,7 @@ fn run(program: Program) -> Result<Object, Error> {
     }
 
     if instructions.is_empty() {
-        return Ok(result);
+        return Ok(final_result);
     }
 
     #[cfg(feature = "debug")]
@@ -191,6 +202,7 @@ fn run(program: Program) -> Result<Object, Error> {
             }
             OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
+                // TODO: Make this pretty. Also, no type coercion maybe?
                 let evaluation = match condition.tag() {
                     Type::Bool => condition.as_bool(),
                     Type::Int => condition.as_int() > 0,
@@ -203,7 +215,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 }
             }
             OpCode::Pop => {
-                result = pop(&mut stack);
+                final_result = pop(&mut stack);
                 frame.ip += 1;
             }
             OpCode::Null => {
@@ -261,7 +273,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 // Last 16 bits contain the number of local variables of the called function
                 // Next 16 bits contains the instruction pointer for where this function is stored
                 let fn_info = pop(&mut stack).as_int();
-                let ip = (fn_info as usize) >> 16;
+                let ip = (fn_info >> 16) as usize;
                 let num_locals = (fn_info & 0x0000FFFF) as u16;
 
                 // Make room on the stack for any local variables defined inside this function
@@ -299,7 +311,9 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
-            OpCode::Halt => return Ok(result),
+            OpCode::Halt => {
+                return Ok(final_result);
+            }
         }
     }
 }

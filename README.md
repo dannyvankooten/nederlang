@@ -36,8 +36,8 @@ Nederlang heeft first class support voor de volgende types:
 - Booleans (`ja` / `nee`)
 - Floats
 - Integers
-- ~~Strings~~ 
-- ~~Arrays~~
+- Strings
+- Arrays    
 - ~~Maps~~
 - ~~Sets~~
 

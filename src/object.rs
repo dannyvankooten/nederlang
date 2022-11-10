@@ -4,6 +4,8 @@ use std::fmt::{Display, Write};
 use std::ptr::drop_in_place;
 use std::string::String as RString;
 
+use crate::vm::GC;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     TypeError(RString),
@@ -25,11 +27,9 @@ macro_rules! init {
 const TAG_MASK: usize = 0b111;
 
 /// The mask to apply to get just the pointer address from a pointer object
-/// This is just the opposite of TAG_MASk
 const PTR_MASK: usize = !TAG_MASK;
 
-/// The amount of bits to shift value objects left
-/// We use the last 3 bits to store the tag, so the rest can be used for values
+/// The amount of bits to shift-left the actual value in value objects (last 3 bits store the type tag)
 const VALUE_SHIFT_BITS: usize = 3;
 
 #[allow(unused)]
@@ -56,7 +56,7 @@ pub enum Type {
     // 0b111
 }
 
-// Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, float, int)
+// Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, int)
 #[derive(Copy, Clone, Debug)]
 pub struct Object(*mut u8);
 unsafe impl Sync for Object {}
@@ -84,12 +84,14 @@ impl Object {
     /// Create a new integer value
     pub fn int(value: i64) -> Self {
         // assert there is no data loss because of the shift
-        assert!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS) == value);
+        debug_assert!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS) == value);
+
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Int)
     }
 
     /// Returns the type of this object pointer
     pub fn tag(self) -> Type {
+        // Safety: self.0 with TAG_MASK applied will always yield a correct Type
         unsafe { std::mem::transmute((self.0 as usize & TAG_MASK) as u8) }
     }
 
@@ -107,31 +109,37 @@ impl Object {
 
     /// Returns the float value of this object pointer
     /// The caller should ensure this pointer points to an actual NlFloat type
-    pub(crate) unsafe fn as_f64(self) -> f64 {
+    pub unsafe fn as_f64(self) -> f64 {
         Float::read(&self)
     }
 
     /// Returns the &str value of this object pointer
     /// The caller should ensure this pointer points to an actual NlString type
-    pub(crate) unsafe fn as_str(&self) -> &str {
+    pub unsafe fn as_str(&self) -> &str {
         String::read(&self)
     }
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
     /// The caller should ensure this pointer actually points to a NlArray
-    pub(crate) unsafe fn as_vec(&self) -> &Vec<Object> {
-        unsafe { Array::read(&self) }
+    pub unsafe fn as_vec(&self) -> &Vec<Object> {
+        Array::read(&self)
     }
 
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
     /// The caller should ensure this pointer actually points to a NlArray
-    pub(crate) unsafe fn as_vec_mut(&self) -> &mut Vec<Object> {
-        unsafe { &mut self.get_mut::<Array>().value }
+    pub unsafe fn as_vec_mut(&self) -> &mut Vec<Object> {
+        &mut self.get_mut::<Array>().value
     }
 
     /// Returns the pointer stored in this object
     /// This can return a non-valid address if called on a non-heap allocated object value.
-    fn as_ptr(self) -> *mut u8 {
+    pub(crate) fn as_ptr_im(self) -> *const u8 {
+        (self.0 as usize & PTR_MASK) as _
+    }
+
+    /// Returns the pointer stored in this object
+    /// This can return a non-valid address if called on a non-heap allocated object value.
+    pub(crate) fn as_ptr(self) -> *mut u8 {
         (self.0 as usize & PTR_MASK) as _
     }
 
@@ -148,9 +156,21 @@ impl Object {
     }
 
     /// Returns true if this pointer does not contain an immediate value
-    /// But points to a heap allocated type (like NlFloat, NlString or NlArray)
+    /// But points to a heap allocated type (like Float, String or Array)
     pub fn is_heap_allocated(self) -> bool {
         self.0 as usize & TAG_MASK >= Type::Float as usize
+    }
+
+    /// Frees the memory address this pointer points to
+    pub fn free(self) {
+        unsafe {
+            match self.tag() {
+                Type::Float => Float::destroy(self),
+                Type::String => String::destroy(self),
+                Type::Array => Array::destroy(self),
+                _ => (),
+            }
+        }
     }
 }
 
@@ -226,12 +246,12 @@ impl From<Vec<Object>> for Object {
 }
 
 #[repr(C)]
-struct Header {
-    marked: bool,
+pub(crate) struct Header {
+    pub(crate) marked: bool,
 }
 
 impl Header {
-    unsafe fn read(ptr: &Object) -> &mut Header {
+    pub(crate) unsafe fn read(ptr: &Object) -> &mut Header {
         ptr.get_mut::<Self>()
     }
 }
@@ -257,6 +277,10 @@ impl Float {
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => value );
+
+        unsafe {
+            GC.trace(ptr);
+        }
         ptr
     }
 }
@@ -282,6 +306,9 @@ impl String {
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => value);
+        unsafe {
+            GC.trace(ptr);
+        }
         ptr
     }
 
@@ -312,6 +339,9 @@ impl Array {
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => vec );
+        unsafe {
+            GC.trace(ptr);
+        }
         ptr
     }
 
@@ -539,4 +569,6 @@ mod tests {
             Array::destroy(ptr);
         }
     }
+
+    // TODO: Test PartialEq & PartialOrd implementations
 }

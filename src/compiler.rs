@@ -585,6 +585,10 @@ impl Compiler {
             .iter()
             .position(|c| c.tag() == obj.tag() && c == &obj)
         {
+            // Because we are re-using a different object in the constants list
+            // This object can be dropped and deallocated
+            obj.free();
+
             return pos;
         }
 
@@ -602,6 +606,7 @@ pub(crate) struct Program {
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
         let mut compiler = Compiler::new();
+
         compiler.compile_block_statement(ast)?;
         compiler.add_instruction(OpCode::Halt, 0);
 
