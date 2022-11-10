@@ -1,8 +1,8 @@
 # Nederlang 
 
-Nederlang is een geinterpreteerde programmeertaal, in het Nederlands! Met als bestandsnaam extensie.... `.nl`! Het maakt gebruik van dynamische types en is geinspireerd door talen als JavaScript, Python en C.  
+Nederlang is een geïnterpreteerde programmeertaal, in het Nederlands! Met als bestandsnaam extensie.... `.nl`! Het maakt gebruik van dynamische types en is geïnspireerd door talen als JavaScript, Python en C.  
 
-De Nederlang code wordt gecompileerd naar bytecode en dan in een virtual machine uitgevoerd. De compiler en virtual machine zijn geschreven in Rust.
+De Nederlangcode wordt gecompileerd naar bytecode en dan in een virtuele machine uitgevoerd. De compiler en virtuele machine zijn geschreven in Rust.
 
 Dit hele project is natuurlijk een grapje en vooral bedoeld om van te leren. Het doel is om een taal neer te zetten die compleet genoeg is om [Advent of Code](https://adventofcode.com/) mee te kunnen doen.
 
@@ -21,7 +21,7 @@ cd nederlang
 cargo build --release
 ```
 
-Na het uitvoeren van bovenstaande stappen staat de executable in `target/release/nederlang`. Om deze system-wide beschikbaar te hebben kan je deze (op Unix systemen) verplaatsen naar `/usr/local/bin`.
+Na het uitvoeren van bovenstaande stappen staat de executable in `target/release/nederlang`. Om deze op ieder pad beschikbaar te hebben kan je deze (op Unix systemen) kopiëren naar `/usr/local/bin`.
 
 ```
 cp target/release/nederlang /usr/local/bin/nederlang
@@ -30,7 +30,7 @@ cp target/release/nederlang /usr/local/bin/nederlang
 
 ### Types
 
-Nederlang heeft first class support voor de volgende types:
+Nederlang heeft eersteklas ondersteuning voor de volgende types:
 
 - Null
 - Booleans (`ja` / `nee`)
@@ -67,7 +67,7 @@ Verwijzen naar een niet-gedeclareerde variabele resulteert in een fout:
 z + 100             // VerwijzingsFout: z is niet gedeclareerd
 ```
 
-Variabelen zijn gelimiteerd tot de scope van het blok of de functie waarin ze worden gedeclareerd.
+Variabelen zijn gelimiteerd tot de reikwijdte van het blok of de functie waarin ze worden gedeclareerd.
 
 ```
 stel x = 100
@@ -108,7 +108,7 @@ a *= 100
 
 ### Functies
 
-Functies declareer je in de volgende vorm: `functie <naam?> (<parameter?>, ...) { <body> }`
+Functies declareer je in de volgende vorm: `functie <naam?> (<parameter?>, ...) { <korpus> }`
 
 ```
 functie optellen(a, b) { 
@@ -136,7 +136,7 @@ functie fibonacci(n) {
 }
 ```
 
-Functies zijn geldige waardes in Nederlang en kan je dus als argument meegeven aan een andere functie:
+Functies zijn geldige waardes in Nederlang en kan je dus als parameter meegeven aan een andere functie:
 
 ```
 functie opteller(a, b) {
@@ -160,7 +160,7 @@ als 1 + 1 == 2 {
 }
 ```
 
-#### Loops
+#### Lussen
 
 ```
 stel aantal = 5
@@ -169,7 +169,7 @@ zolang aantal > 0 {
 }
 ```
 
-Om onder voorwaarde uit een loop te stappen gebruik je `stop`:
+Om onder voorwaarde uit een lus te stappen gebruik je `stop`:
 
 ```
 stel aantal = 1
@@ -183,7 +183,7 @@ zolang ja {
 aantal                      // => 100
 ```
 
-Om vroegtijdig naar een volgende iteratie van een loop te gaan gebruik je `volgende`:
+Om vroegtijdig naar een volgende iteratie van een lus te gaan gebruik je `volgende`:
 
 ```
 stel n = 0
@@ -200,6 +200,6 @@ zolang n < 10 {
 ```
 
 
-## License
+## Licentie
 
 GPLv3, voor nu.
