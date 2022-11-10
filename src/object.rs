@@ -108,25 +108,25 @@ impl Object {
     }
 
     /// Returns the float value of this object pointer
-    /// The caller should ensure this pointer points to an actual NlFloat type
+    /// The caller should ensure this pointer points to an actual Float type
     pub unsafe fn as_f64(self) -> f64 {
         Float::read(&self)
     }
 
     /// Returns the &str value of this object pointer
-    /// The caller should ensure this pointer points to an actual NlString type
+    /// The caller should ensure this pointer points to an actual String type
     pub unsafe fn as_str(&self) -> &str {
         String::read(&self)
     }
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
-    /// The caller should ensure this pointer actually points to a NlArray
+    /// The caller should ensure this pointer actually points to a Array
     pub unsafe fn as_vec(&self) -> &Vec<Object> {
         Array::read(&self)
     }
 
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
-    /// The caller should ensure this pointer actually points to a NlArray
+    /// The caller should ensure this pointer actually points to a Array
     pub unsafe fn as_vec_mut(&self) -> &mut Vec<Object> {
         &mut self.get_mut::<Array>().value
     }
@@ -245,8 +245,8 @@ pub(crate) struct Header {
 }
 
 impl Header {
-    pub(crate) unsafe fn read(ptr: &Object) -> &mut Header {
-        ptr.get_mut::<Self>()
+    pub(crate) unsafe fn read(obj: &Object) -> &mut Header {
+        obj.get_mut::<Self>()
     }
 }
 
@@ -257,13 +257,13 @@ struct Float {
 }
 
 impl Float {
-    unsafe fn read(ptr: &Object) -> f64 {
-        ptr.get::<Self>().value
+    unsafe fn read(obj: &Object) -> f64 {
+        obj.get::<Self>().value
     }
 
-    unsafe fn destroy(ptr: Object) {
-        drop_in_place(ptr.as_ptr() as *mut Self);
-        dealloc(ptr.as_ptr(), Layout::new::<Self>());
+    unsafe fn destroy(obj: Object) {
+        drop_in_place(obj.as_ptr() as *mut Self);
+        dealloc(obj.as_ptr(), Layout::new::<Self>());
     }
 
     fn from_f64(value: f64) -> Object {
@@ -272,9 +272,9 @@ impl Float {
         obj.header.marked = false;
         init!(obj.value => value );
 
-        unsafe {
-            GC.trace(ptr);
-        }
+        // Add allocated object to GC tracer
+        GC.lock().unwrap().trace(ptr);
+
         ptr
     }
 }
@@ -300,9 +300,10 @@ impl String {
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => value);
-        unsafe {
-            GC.trace(ptr);
-        }
+
+        // Add allocated object to GC tracer
+        GC.lock().unwrap().trace(ptr);
+
         ptr
     }
 
@@ -333,9 +334,10 @@ impl Array {
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => vec );
-        unsafe {
-            GC.trace(ptr);
-        }
+
+        // Add allocated object to GC tracer
+        GC.lock().unwrap().trace(ptr);
+
         ptr
     }
 
@@ -387,15 +389,14 @@ impl Display for Type {
     }
 }
 
+/// Allocate a chunk of memory with the given layout
 fn allocate(layout: Layout) -> *mut u8 {
-    unsafe {
-        let ptr = alloc(layout);
+    let ptr = unsafe { alloc(layout) };
 
-        if ptr.is_null() {
-            handle_alloc_error(layout);
-        } else {
-            ptr
-        }
+    if ptr.is_null() {
+        handle_alloc_error(layout);
+    } else {
+        ptr
     }
 }
 

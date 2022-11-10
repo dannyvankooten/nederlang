@@ -9,6 +9,7 @@ use crate::parser::parse;
 #[cfg(feature = "debug")]
 use std::io::Write;
 use std::ptr;
+use std::sync::Mutex;
 
 #[cfg(feature = "debug")]
 use crate::compiler::bytecode_to_human;
@@ -59,16 +60,14 @@ impl Frame {
 
 pub fn run_str(program: &str) -> Result<Object, Error> {
     // Init garbage collector
-    unsafe {
-        GC.init();
-    }
+    GC.lock().unwrap().init();
 
     let ast = parse(program)?;
     let program = Program::new(&ast)?;
     run(program)
 }
 
-pub static mut GC: Lazy<GC> = Lazy::new(|| GC::new());
+pub static GC: Lazy<Mutex<GC>> = Lazy::new(|| Mutex::new(GC::new()));
 
 fn run(program: Program) -> Result<Object, Error> {
     #[cfg(feature = "debug")]
@@ -312,9 +311,9 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
             OpCode::Halt => {
-                unsafe {
-                    GC.run(&[&[final_result]]);
-                }
+                let mut gc = GC.lock().unwrap();
+                gc.untrace(final_result);
+                gc.run(&[]);
                 return Ok(final_result);
             }
         }

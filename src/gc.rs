@@ -10,13 +10,12 @@ impl GC {
             objects: Vec::new(),
         }
     }
-    pub fn tracing(&self) -> &Vec<Object> {
-        &self.objects
-    }
 
     pub fn init(&mut self) {
         self.run(&[]);
-        self.objects.clear();
+
+        // Assert that all objects were cleaned (b/c we passed no roots)
+        assert!(self.objects.len() == 0);
     }
 
     /// Adds the given object to the list of objects to manage
@@ -25,8 +24,24 @@ impl GC {
         self.objects.push(o);
     }
 
+    #[inline]
+    pub fn untrace(&mut self, o: Object) {
+        if let Some(pos) = self
+            .objects
+            .iter()
+            .position(|a| std::ptr::eq(a.as_ptr(), o.as_ptr()))
+        {
+            self.objects.swap_remove(pos);
+        }
+    }
+
     /// Runs a full mark & sweep cycle
     pub fn run(&mut self, roots: &[&[Object]]) {
+        // Don't traverse roots if we have no traced objects
+        if self.objects.is_empty() {
+            return;
+        }
+
         // mark all reachable objects
         for root in roots.iter() {
             for obj in root.iter() {
@@ -45,19 +60,12 @@ impl GC {
         #[cfg(debug_assertions)]
         let size_start = self.objects.len();
 
-        // first, sort and dedup the list of objects
-        // self.objects.sort_unstable();
-        // self.objects.dedup();
-
         let mut i = 0;
         while i < self.objects.len() {
             let obj = self.objects[i];
 
-            // Remove non-heap allocated objects from list
-            if !obj.is_heap_allocated() {
-                self.objects.swap_remove(i);
-                continue;
-            }
+            // Immediate values should not end up on the traced objects list
+            debug_assert!(obj.is_heap_allocated());
 
             // Object is heap allocated
             // Read its header to check if its marked
@@ -70,11 +78,7 @@ impl GC {
             }
 
             // Remove object from tracing list
-            if self.objects.len() > 0 {
-                self.objects.swap_remove(i);
-            } else {
-                self.objects.pop();
-            }
+            self.objects.swap_remove(i);
 
             // Drop and deallocate object
             obj.free();
@@ -82,7 +86,7 @@ impl GC {
 
         #[cfg(debug_assertions)]
         println!(
-            "GC SUMMARY: \n\tObjects cleaned: {}\n\tObjects remaining: {}\n\tElapsed time: {}ns",
+            "GC SUMMARY: \n  {:4} objects cleaned\n  {:4} objects remaining:\n  {:4} ns elapsed",
             size_start - self.objects.len(),
             self.objects.len(),
             time_start.elapsed().as_nanos()

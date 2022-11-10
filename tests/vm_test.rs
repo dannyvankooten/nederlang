@@ -73,18 +73,8 @@ fn test_logical_andor() {
 }
 
 #[test]
-fn test_negating_values() {
+fn test_negate_int() {
     assert_eq!(run_str("-1"), Ok(Object::from(-1)));
-
-    let result = run_str("-1.00");
-    assert!(result.is_ok());
-
-    let result = result.unwrap();
-    assert_eq!(result.tag(), Type::Float);
-    unsafe {
-        assert_eq!(result.as_f64(), -1.00);
-        nederlang::vm::GC.run(&[]);
-    }
 }
 
 #[test]
@@ -351,20 +341,43 @@ fn test_continue_statement() {
 }
 
 #[test]
-fn test_garbage_collection() {
+fn test_gc_negate_float() {
+    let result = run_str("-1.00");
+    assert!(result.is_ok());
+
+    let result = result.unwrap();
+    assert_eq!(result.tag(), Type::Float);
+    unsafe {
+        assert_eq!(result.as_f64(), -1.00);
+        result.free();
+    }
+}
+
+#[test]
+fn test_gc_float() {
     for (test, expected) in [("3.14 + 3.15", 3.14 + 3.15)] {
         let result = run_str(test);
         assert!(result.is_ok());
 
+        let result = result.unwrap();
+
+        assert_eq!(result.tag(), Type::Float);
         unsafe {
-            assert_eq!(result.unwrap().as_f64(), expected);
+            assert_eq!(result.as_f64(), expected);
+            result.free();
         }
     }
+}
 
+#[test]
+fn test_gc_str() {
     let result = run_str(r#""Hello, world!""#);
     assert!(result.is_ok());
+
+    let result = result.unwrap();
+    assert_eq!(result.tag(), Type::String);
     unsafe {
-        assert_eq!(result.unwrap().as_str(), "Hello, world!");
-        nederlang::vm::GC.run(&[]);
+        assert_eq!(result.as_str(), "Hello, world!");
+        result.free();
     }
 }
