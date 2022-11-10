@@ -68,7 +68,7 @@ pub fn run_str(program: &str) -> Result<Object, Error> {
     run(program)
 }
 
-pub(crate) static mut GC: Lazy<GC> = Lazy::new(|| GC::new());
+pub static mut GC: Lazy<GC> = Lazy::new(|| GC::new());
 
 fn run(program: Program) -> Result<Object, Error> {
     #[cfg(feature = "debug")]
@@ -312,6 +312,9 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
             OpCode::Halt => {
+                unsafe {
+                    GC.run(&[&[final_result]]);
+                }
                 return Ok(final_result);
             }
         }

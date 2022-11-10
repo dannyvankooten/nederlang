@@ -585,10 +585,6 @@ impl Compiler {
             .iter()
             .position(|c| c.tag() == obj.tag() && c == &obj)
         {
-            // Because we are re-using a different object in the constants list
-            // This object can be dropped and deallocated
-            obj.free();
-
             return pos;
         }
 

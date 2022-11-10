@@ -1,6 +1,6 @@
 use crate::object::{Header, Object};
 
-pub(crate) struct GC {
+pub struct GC {
     objects: Vec<Object>,
 }
 
@@ -15,8 +15,8 @@ impl GC {
     }
 
     pub fn init(&mut self) {
-        // self.run(&[]);
-        // self.objects.clear();
+        self.run(&[]);
+        self.objects.clear();
     }
 
     /// Adds the given object to the list of objects to manage
@@ -44,6 +44,10 @@ impl GC {
         let time_start = std::time::Instant::now();
         #[cfg(debug_assertions)]
         let size_start = self.objects.len();
+
+        // first, sort and dedup the list of objects
+        // self.objects.sort_unstable();
+        // self.objects.dedup();
 
         let mut i = 0;
         while i < self.objects.len() {

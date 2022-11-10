@@ -83,6 +83,7 @@ fn test_negating_values() {
     assert_eq!(result.tag(), Type::Float);
     unsafe {
         assert_eq!(result.as_f64(), -1.00);
+        nederlang::vm::GC.run(&[]);
     }
 }
 
@@ -351,15 +352,19 @@ fn test_continue_statement() {
 
 #[test]
 fn test_garbage_collection() {
-    for (test, expected) in [("3.14 + 3.14", 3.14 + 3.14)] {
+    for (test, expected) in [("3.14 + 3.15", 3.14 + 3.15)] {
         let result = run_str(test);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Object::from(expected));
+
+        unsafe {
+            assert_eq!(result.unwrap().as_f64(), expected);
+        }
     }
 
-    for (test, expected) in [(r#""Hello, world!""#, "Hello, world!")] {
-        let result = run_str(test);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Object::from(expected));
+    let result = run_str(r#""Hello, world!""#);
+    assert!(result.is_ok());
+    unsafe {
+        assert_eq!(result.unwrap().as_str(), "Hello, world!");
+        nederlang::vm::GC.run(&[]);
     }
 }

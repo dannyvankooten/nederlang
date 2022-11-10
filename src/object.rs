@@ -57,7 +57,7 @@ pub enum Type {
 }
 
 // Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, int)
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Ord, Eq)]
 pub struct Object(*mut u8);
 unsafe impl Sync for Object {}
 unsafe impl Send for Object {}
@@ -129,12 +129,6 @@ impl Object {
     /// The caller should ensure this pointer actually points to a NlArray
     pub unsafe fn as_vec_mut(&self) -> &mut Vec<Object> {
         &mut self.get_mut::<Array>().value
-    }
-
-    /// Returns the pointer stored in this object
-    /// This can return a non-valid address if called on a non-heap allocated object value.
-    pub(crate) fn as_ptr_im(self) -> *const u8 {
-        (self.0 as usize & PTR_MASK) as _
     }
 
     /// Returns the pointer stored in this object
