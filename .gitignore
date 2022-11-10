@@ -4,3 +4,4 @@ perf.data*
 flamegraph.svg
 NOTES.md
 examples/.*
+vgcore.*

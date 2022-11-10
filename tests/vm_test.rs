@@ -78,11 +78,13 @@ fn test_negating_values() {
 
     let result = run_str("-1.00");
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().tag(), Type::Float);
 
-    // unsafe {
-    //     assert_eq!(result.unwrap().as_f64(), -1.00);
-    // }
+    let result = result.unwrap();
+    assert_eq!(result.tag(), Type::Float);
+    unsafe {
+        assert_eq!(result.as_f64(), -1.00);
+        nederlang::vm::GC.run(&[]);
+    }
 }
 
 #[test]
@@ -127,9 +129,7 @@ fn test_if_expression_with_empy_body() {
 #[test]
 fn test_if_expression_with_empty_else() {
     assert_eq!(run_str("als ja { 1 } anders {  }"), Ok(Object::from(1)));
-    // The following currently panics because nothing is on the stack
-    // Compiler should probably delete that (dce)
-    //assert_eq!(run_str("als nee { 1 } anders {  }"), Ok(Object::from(1)));
+    assert_eq!(run_str("als nee { 1 } anders {  }"), Ok(Object::null()));
 }
 
 #[test]
@@ -284,7 +284,6 @@ fn test_function_accessing_global() {
 }
 
 #[test]
-#[ignore]
 fn test_fib_recursion() {
     assert_eq!(
         run_str(
@@ -349,4 +348,23 @@ fn test_break_statement() {
 #[test]
 fn test_continue_statement() {
     assert_eq!(run_str("stel i = 0; stel a = 2; zolang i < 10 { i = i + 1; als i >= 5 { volgende; } a = a * 2; } a"), Ok(Object::from(32)));
+}
+
+#[test]
+fn test_garbage_collection() {
+    for (test, expected) in [("3.14 + 3.15", 3.14 + 3.15)] {
+        let result = run_str(test);
+        assert!(result.is_ok());
+
+        unsafe {
+            assert_eq!(result.unwrap().as_f64(), expected);
+        }
+    }
+
+    let result = run_str(r#""Hello, world!""#);
+    assert!(result.is_ok());
+    unsafe {
+        assert_eq!(result.unwrap().as_str(), "Hello, world!");
+        nederlang::vm::GC.run(&[]);
+    }
 }

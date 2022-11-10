@@ -602,6 +602,7 @@ pub(crate) struct Program {
 impl Program {
     pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
         let mut compiler = Compiler::new();
+
         compiler.compile_block_statement(ast)?;
         compiler.add_instruction(OpCode::Halt, 0);
 
