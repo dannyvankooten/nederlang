@@ -196,11 +196,9 @@ fn run(program: Program) -> Result<Object, Error> {
             }
             OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
-
                 let evaluation = match condition.tag() {
                     Type::Bool => Ok(condition.as_bool()),
-                    Type::Int => Ok(condition.as_int() > 0),
-                    _ => Err(Error::TypeError(format!("Kan object van type {} niet gebruiken als voorwaarde. Gebruik bool() om te type casten naar boolean.", condition.tag()))),
+                    _ => Err(Error::TypeError(format!("Kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
                 }?;
                 if evaluation == true {
                     frame.ip += 3;
@@ -286,6 +284,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 for _ in 0..num_args {
                     args.push(pop(&mut stack));
                 }
+                args.reverse();
                 let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
                 let result = builtins::call(builtin, &args, &mut gc);
                 stack.push(result);

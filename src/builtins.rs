@@ -36,11 +36,21 @@ pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Object {
     }
 }
 
-// Prints all the given arguments
-fn call_print(args: &[Object]) -> Object {
-    for arg in args {
-        print!("{}", arg);
+/// Prints all the given arguments using a very simple format scheme
+/// Example:
+///     print("Hallo {}!", "wereld") => prints "Hallo wereld" to stdout
+fn call_print(mut args: &[Object]) -> Object {
+    if args.len() > 0 {
+        let mut format_str = args[0].to_string();
+        args = &args[1..];
+
+        while format_str.contains("{}") && args.len() > 0 {
+            format_str = format_str.replacen("{}", &args.first().unwrap().to_string(), 1);
+            args = &args[1..];
+        }
+        print!("{format_str}");
     }
+
     println!();
 
     Object::null()
