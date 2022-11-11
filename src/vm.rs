@@ -190,6 +190,9 @@ fn run(program: Program) -> Result<Object, Error> {
             // TODO: Make JUMP* opcodes relative
             OpCode::Jump => {
                 frame.ip = read_u16_operand!(instructions, frame.ip);
+
+                // collect garbage on every jump instruction
+                gc.run(&[&stack, &constants, &globals, &[final_result]]);
             }
             OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
