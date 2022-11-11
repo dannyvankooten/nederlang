@@ -213,7 +213,9 @@ impl Object {
 
 impl PartialEq for Object {
     fn eq(&self, other: &Self) -> bool {
-        debug_assert_eq!(self.tag(), other.tag());
+        if self.tag() != other.tag() {
+            return false;
+        }
 
         match self.tag() {
             Type::Null | Type::Bool | Type::Int => self.as_int() == other.as_int(),
@@ -235,7 +237,7 @@ impl PartialOrd for Object {
             Type::Float => unsafe { self.as_f64_unchecked().partial_cmp(&other.as_f64()) },
             Type::String => unsafe { self.as_str_unchecked().partial_cmp(other.as_str()) },
             Type::Array => {
-                unimplemented!("Can not yet compare objects of type array")
+                unimplemented!("Can not yet order objects of type array")
             }
         }
     }
@@ -352,7 +354,7 @@ impl Array {
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.tag() {
-            Type::Null => f.write_str("null")?,
+            Type::Null => (),
             Type::Bool => f.write_str(if self.as_bool() { "true" } else { "false" })?,
             Type::Float => unsafe { f.write_str(&self.as_f64_unchecked().to_string())? },
             Type::Int => f.write_str(&self.as_int().to_string())?,

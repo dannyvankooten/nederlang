@@ -1,4 +1,5 @@
 mod ast;
+mod builtins;
 mod compiler;
 mod gc;
 mod lexer;

@@ -1,5 +1,4 @@
-#[cfg(feature = "debug")]
-use nederlang::object::NlObject;
+use nederlang::object::Object;
 use nederlang::vm::run_str;
 use std::env::args;
 use std::fs;
@@ -17,7 +16,11 @@ fn run_repl() {
         io::stdin().read_line(&mut buffer).unwrap();
 
         match run_str(&buffer) {
-            Ok(obj) => println!("{obj}"),
+            Ok(obj) => {
+                if obj != Object::null() {
+                    println!("{obj}")
+                }
+            }
             Err(e) => eprintln!("{e:?}"),
         }
     }

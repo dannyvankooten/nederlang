@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::fmt::Write;
 
 use crate::ast::*;
-use crate::gc;
+use crate::builtins;
 use crate::gc::GC;
 use crate::object::Error;
 use crate::object::Object;
@@ -51,6 +51,7 @@ pub(crate) enum OpCode {
     Return,
     ReturnValue,
     Call,
+    CallBuiltin,
     GetLocal,
     SetLocal,
     GetGlobal,
@@ -99,7 +100,8 @@ impl OpCode {
             | OpCode::SubtractLocalConst
             | OpCode::MultiplyLocalConst
             | OpCode::DivideLocalConst
-            | OpCode::ModuloLocalConst => 2,
+            | OpCode::ModuloLocalConst
+            | OpCode::CallBuiltin => 2,
 
             // OpCodes with 1 operand:
             OpCode::Call
@@ -344,6 +346,8 @@ impl Compiler {
                     )))
                     }
                 };
+
+                // TODO: Make it easier to add instructions that take multiple operands
                 self.instructions.push(op as u8);
                 self.instructions.push(symbol.index as u8);
                 self.instructions.push(idx_constant as u8);
@@ -555,9 +559,12 @@ impl Compiler {
 
                 // Switch back to previous scope again
                 let num_locals = self.symbols.leave_context() as u8;
+
+                // We push a simple Integer object on the constants list
+                // Last 16 bits contain the number of locals
+                // Next 16 bits contains the offset in the instructions array this function was compiled to
                 let info = (pos_start_function << 16) as u32 + num_locals as u32;
                 let idx = self.add_constant(Object::int(info as i64));
-
                 self.add_instruction(OpCode::Const, idx);
 
                 // If this function received a name, define it in the scope
@@ -570,9 +577,18 @@ impl Compiler {
                     self.add_instruction(OpCode::Const, idx);
                 }
             }
-            Expr::Call(expr) => {
+            Expr::Call(expr) => 'compile_call: {
                 for a in &expr.arguments {
                     self.compile_expression(a)?;
+                }
+
+                if let Expr::Identifier(name) = &*expr.left {
+                    if let Some(builtin) = builtins::resolve(name) {
+                        self.instructions.push(OpCode::CallBuiltin as u8);
+                        self.instructions.push(builtin as u8);
+                        self.instructions.push(expr.arguments.len() as u8);
+                        break 'compile_call;
+                    }
                 }
                 self.compile_expression(&expr.left)?;
                 self.add_instruction(OpCode::Call, expr.arguments.len());
@@ -603,7 +619,7 @@ impl Compiler {
 pub(crate) struct Program {
     pub(crate) constants: Vec<Object>,
     pub(crate) instructions: Vec<u8>,
-    pub(crate) gc: gc::GC,
+    pub(crate) gc: GC,
 }
 
 impl Program {
@@ -658,6 +674,7 @@ impl Display for OpCode {
             OpCode::Return => f.write_str("Return"),
             OpCode::ReturnValue => f.write_str("ReturnValue"),
             OpCode::Call => f.write_str("Call"),
+            OpCode::CallBuiltin => f.write_str("CallBuiltin"),
             OpCode::GetLocal => f.write_str("GetLocal"),
             OpCode::SetLocal => f.write_str("SetLocal"),
             OpCode::GetGlobal => f.write_str("GetGlobal"),
@@ -879,5 +896,13 @@ mod tests {
         );
 
         // TODO: Test scoped variables
+    }
+
+    #[test]
+    fn test_call_builtin() {
+        assert_eq!(
+            run("print(\"hallo\")"),
+            "Const(0) CallBuiltin(256) Pop Halt"
+        )
     }
 }

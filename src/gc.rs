@@ -58,11 +58,6 @@ impl GC {
 
     /// Sweep all unmarked objects
     pub fn sweep(&mut self) {
-        #[cfg(debug_assertions)]
-        let time_start = std::time::Instant::now();
-        #[cfg(debug_assertions)]
-        let size_start = self.objects.len();
-
         let mut i = 0;
         while i < self.objects.len() {
             let obj = self.objects[i];
@@ -86,14 +81,6 @@ impl GC {
             // Drop and deallocate object
             obj.free();
         }
-
-        #[cfg(debug_assertions)]
-        println!(
-            "GC SUMMARY: \n  {:4} objects cleaned\n  {:4} objects remaining:\n  {:4} ns elapsed",
-            size_start - self.objects.len(),
-            self.objects.len(),
-            time_start.elapsed().as_nanos()
-        );
     }
 }
 

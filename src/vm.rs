@@ -1,3 +1,4 @@
+use crate::builtins::{self, Builtin};
 use crate::compiler::{OpCode, Program};
 use crate::object::{Error, Object, Type};
 use crate::parser::parse;
@@ -274,6 +275,18 @@ fn run(program: Program) -> Result<Object, Error> {
                 frame.ip += 1;
                 frames.push(Frame::new(ip as usize, base_pointer));
                 frame = frames.iter_mut().last().unwrap();
+            }
+            OpCode::CallBuiltin => {
+                let builtin = read_u8_operand!(instructions, frame.ip) as u8;
+                let num_args = read_u8_operand!(instructions, frame.ip + 1);
+                let mut args = Vec::with_capacity(num_args);
+                for _ in 0..num_args {
+                    args.push(pop(&mut stack));
+                }
+                let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
+                let result = builtins::call(builtin, &args, &mut gc);
+                stack.push(result);
+                frame.ip += 3;
             }
             OpCode::ReturnValue => {
                 let result = pop(&mut stack);

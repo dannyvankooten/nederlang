@@ -20,6 +20,7 @@ window.addEventListener('load', function () {
 myWorker.onmessage = (e) => {
     let [success, message, elapsed_time] = e.data;
     if (success) {
+        message = message.replaceAll("\n", "<br />");
         message = `<div><strong>Resultaat: </strong> ${message}</div>`
         message += `<div class="m muted">Programma was bezig voor <strong>${elapsed_time}</strong> ms.</div>`
         resultElement.innerHTML = message;

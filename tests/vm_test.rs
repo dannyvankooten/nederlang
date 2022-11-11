@@ -372,3 +372,66 @@ fn test_gc_str() {
     assert_eq!(result.as_str(), "Hello, world!");
     result.free();
 }
+
+#[test]
+fn test_cast_int() {
+    for t in ["int(1)", "int(\"1\")", "int(1.00)", "int(ja)"] {
+        assert_eq!(run_str(t), Ok(Object::int(1)));
+    }
+
+    assert_eq!(run_str("int(nee)"), Ok(Object::int(0)));
+}
+
+#[test]
+fn test_cast_bool() {
+    for t in [
+        "bool(1)",
+        "bool(\"1\")",
+        "bool(1.00)",
+        "bool(ja)",
+        "bool(\"0\")",
+    ] {
+        assert_eq!(run_str(t), Ok(Object::bool(true)));
+    }
+
+    for t in [
+        "bool(0)",
+        "bool(0.00)",
+        "bool(nee)",
+        "bool(-1)",
+        "bool(-1.00)",
+    ] {
+        assert_eq!(run_str(t), Ok(Object::bool(false)));
+    }
+}
+
+#[test]
+fn test_cast_string() {
+    for (t, e) in [
+        ("string(1)", "1"),
+        ("string(\"1\")", "1"),
+        ("string(1.00)", "1"),
+        ("string(ja)", "true"),
+        ("string(nee)", "false"),
+        ("string(\"0\")", "0"),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert_eq!(result.as_str(), e);
+        result.free();
+    }
+}
+
+#[test]
+fn test_cast_float() {
+    for t in ["float(1)", "float(\"1\")", "float(1.00)", "float(ja)"] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert_eq!(result.as_f64(), 1.00);
+        result.free();
+    }
+}
