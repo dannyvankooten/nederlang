@@ -1,15 +1,10 @@
-use once_cell::sync::Lazy;
-
 use crate::compiler::{OpCode, Program};
-use crate::gc::GC;
-use crate::object::Error;
-use crate::object::{Object, Type};
+use crate::object::{Error, Object, Type};
 use crate::parser::parse;
 
 #[cfg(feature = "debug")]
 use std::io::Write;
 use std::ptr;
-use std::sync::Mutex;
 
 #[cfg(feature = "debug")]
 use crate::compiler::bytecode_to_human;
@@ -59,15 +54,10 @@ impl Frame {
 }
 
 pub fn run_str(program: &str) -> Result<Object, Error> {
-    // Init garbage collector
-    GC.lock().unwrap().init();
-
     let ast = parse(program)?;
     let program = Program::new(&ast)?;
     run(program)
 }
-
-pub static GC: Lazy<Mutex<GC>> = Lazy::new(|| Mutex::new(GC::new()));
 
 fn run(program: Program) -> Result<Object, Error> {
     #[cfg(feature = "debug")]
@@ -83,6 +73,7 @@ fn run(program: Program) -> Result<Object, Error> {
     // Keep your friends close
     let instructions = program.instructions;
     let constants = program.constants;
+    let mut gc = program.gc;
 
     // Init stack, globals, frames & tmp value to store final program result
     let mut stack = Vec::with_capacity(32);
@@ -98,7 +89,7 @@ fn run(program: Program) -> Result<Object, Error> {
         ($op:tt) => {{
             let right = pop(&mut stack);
             let left = pop(&mut stack);
-            let result = left.$op(right)?;
+            let result = left.$op(right, &mut gc)?;
             stack.push(result);
             frame.ip += 1;
         }};
@@ -108,7 +99,7 @@ fn run(program: Program) -> Result<Object, Error> {
         ($op:tt) => {{
             let left = stack[frame.base_pointer + read_u8_operand!(instructions, frame.ip)];
             let right = constants[read_u8_operand!(instructions, frame.ip + 1)];
-            let result = left.$op(right)?;
+            let result = left.$op(right, &mut gc)?;
             stack.push(result);
             frame.ip += 3;
         }};
@@ -222,11 +213,11 @@ fn run(program: Program) -> Result<Object, Error> {
                 frame.ip += 1;
             }
             OpCode::True => {
-                stack.push(Object::from(true));
+                stack.push(Object::bool(true));
                 frame.ip += 1;
             }
             OpCode::False => {
-                stack.push(Object::from(false));
+                stack.push(Object::bool(false));
                 frame.ip += 1;
             }
             OpCode::Add => impl_binary_op_method!(add),
@@ -245,15 +236,15 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::Not => {
                 let left = pop(&mut stack);
                 assert_eq!(left.tag(), Type::Bool);
-                let result = Object::from(!left.as_bool());
+                let result = Object::bool(!left.as_bool());
                 stack.push(result);
                 frame.ip += 1;
             }
             OpCode::Negate => {
                 let left = pop(&mut stack);
                 let result = match left.tag() {
-                    Type::Float => unsafe { Object::from(-left.as_f64()) },
-                    Type::Int => Object::from(-left.as_int()),
+                    Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), &mut gc) },
+                    Type::Int => Object::int(-left.as_int()),
                     _ => {
                         return Err(Error::TypeError(format!(
                             "Can not negate object of type {}",
@@ -311,9 +302,7 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
             OpCode::Halt => {
-                let mut gc = GC.lock().unwrap();
                 gc.untrace(final_result);
-                gc.run(&[]);
                 return Ok(final_result);
             }
         }

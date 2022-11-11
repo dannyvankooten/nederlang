@@ -1,21 +1,16 @@
 use crate::object::{Header, Object};
 
 pub struct GC {
+    /// Vector of all currently alive heap-allocated objects in the universe
     objects: Vec<Object>,
 }
 
 impl GC {
+    /// Create a new Garbage Collector to manage heap-allocated objects
     pub fn new() -> GC {
         Self {
-            objects: Vec::new(),
+            objects: Vec::with_capacity(8),
         }
-    }
-
-    pub fn init(&mut self) {
-        self.run(&[]);
-
-        // Assert that all objects were cleaned (b/c we passed no roots)
-        assert!(self.objects.len() == 0);
     }
 
     /// Adds the given object to the list of objects to manage
@@ -24,6 +19,7 @@ impl GC {
         self.objects.push(o);
     }
 
+    /// Removes the given object from this garbage collector so it is no longer managed by it
     #[inline]
     pub fn untrace(&mut self, o: Object) {
         if let Some(pos) = self
@@ -35,7 +31,14 @@ impl GC {
         }
     }
 
+    /// Sweeps all objects
+    /// This is automatically called once the Garbage Collector is dropped
+    pub fn destroy(&mut self) {
+        self.sweep();
+    }
+
     /// Runs a full mark & sweep cycle
+    /// Only objects in the given roots are kept alive
     pub fn run(&mut self, roots: &[&[Object]]) {
         // Don't traverse roots if we have no traced objects
         if self.objects.is_empty() {
@@ -91,6 +94,13 @@ impl GC {
             self.objects.len(),
             time_start.elapsed().as_nanos()
         );
+    }
+}
+
+/// Implement Drop trait so that GC::destroy() is automatically called once the Garbage Collector goes out of scope
+impl Drop for GC {
+    fn drop(&mut self) {
+        self.destroy();
     }
 }
 

@@ -4,7 +4,7 @@ use std::fmt::{Display, Write};
 use std::ptr::drop_in_place;
 use std::string::String as RString;
 
-use crate::vm::GC;
+use crate::gc::GC;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -57,7 +57,7 @@ pub enum Type {
 }
 
 // Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, int)
-#[derive(Copy, Clone, Debug, Ord, Eq)]
+#[derive(Copy, Clone, Debug)]
 pub struct Object(*mut u8);
 unsafe impl Sync for Object {}
 unsafe impl Send for Object {}
@@ -84,9 +84,24 @@ impl Object {
     /// Create a new integer value
     pub fn int(value: i64) -> Self {
         // assert there is no data loss because of the shift
-        debug_assert!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS) == value);
+        debug_assert_eq!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS), value);
 
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Int)
+    }
+
+    /// Create a new (garbage-collected) String value
+    pub fn string(value: &str, gc: &mut GC) -> Self {
+        String::from_str(value, gc)
+    }
+
+    /// Create a new (garbage-collected) Float value
+    pub fn float(value: f64, gc: &mut GC) -> Self {
+        Float::from_f64(value, gc)
+    }
+
+    /// Create a new (garbage-collected) Array value
+    pub fn array(value: &[Object], gc: &mut GC) -> Self {
+        Array::from_slice(value, gc)
     }
 
     /// Returns the type of this object pointer
@@ -107,27 +122,55 @@ impl Object {
         self.0 as i64 >> VALUE_SHIFT_BITS
     }
 
-    /// Returns the float value of this object pointer
+    /// Returns the f64 value of this object pointer
+    /// Panics if object does not point to a Float
+    pub fn as_f64(self) -> f64 {
+        assert_eq!(self.tag(), Type::Float);
+        unsafe { self.as_f64_unchecked() }
+    }
+
+    /// Returns the f64 value of this object pointer
     /// The caller should ensure this pointer points to an actual Float type
-    pub unsafe fn as_f64(self) -> f64 {
+    pub unsafe fn as_f64_unchecked(self) -> f64 {
         Float::read(&self)
     }
 
     /// Returns the &str value of this object pointer
+    /// Panics if object does not point to a String
+    pub fn as_str(&self) -> &str {
+        assert_eq!(self.tag(), Type::String);
+        unsafe { self.as_str_unchecked() }
+    }
+
+    /// Returns the &str value of this object pointer
     /// The caller should ensure this pointer points to an actual String type
-    pub unsafe fn as_str(&self) -> &str {
+    pub unsafe fn as_str_unchecked(&self) -> &str {
         String::read(&self)
     }
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
-    /// The caller should ensure this pointer actually points to a Array
-    pub unsafe fn as_vec(&self) -> &Vec<Object> {
+    /// Panics if object does not point to an Array
+    pub fn as_vec(&self) -> &Vec<Object> {
+        assert_eq!(self.tag(), Type::Array);
+        unsafe { self.as_vec_unchecked() }
+    }
+
+    /// Returns a reference to the Vec<Pointer> value this pointer points to
+    /// The caller should ensure this pointer actually points to an Array
+    pub unsafe fn as_vec_unchecked(&self) -> &Vec<Object> {
         Array::read(&self)
     }
 
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
-    /// The caller should ensure this pointer actually points to a Array
-    pub unsafe fn as_vec_mut(&self) -> &mut Vec<Object> {
+    /// Panics if object does not point to an Array
+    pub fn as_vec_mut(&self) -> &mut Vec<Object> {
+        assert_eq!(self.tag(), Type::Array);
+        unsafe { self.as_vec_unchecked_mut() }
+    }
+
+    /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
+    /// The caller should ensure this pointer actually points to an Array
+    pub unsafe fn as_vec_unchecked_mut(&self) -> &mut Vec<Object> {
         &mut self.get_mut::<Array>().value
     }
 
@@ -174,8 +217,8 @@ impl PartialEq for Object {
 
         match self.tag() {
             Type::Null | Type::Bool | Type::Int => self.as_int() == other.as_int(),
-            Type::Float => unsafe { self.as_f64() == other.as_f64() },
-            Type::String => unsafe { self.as_str() == other.as_str() },
+            Type::Float => unsafe { self.as_f64_unchecked() == other.as_f64_unchecked() },
+            Type::String => unsafe { self.as_str_unchecked() == other.as_str_unchecked() },
             Type::Array => {
                 unimplemented!("Can not yet compare objects of type array")
             }
@@ -189,53 +232,12 @@ impl PartialOrd for Object {
 
         match self.tag() {
             Type::Null | Type::Bool | Type::Int => self.as_int().partial_cmp(&other.as_int()),
-            Type::Float => unsafe { self.as_f64().partial_cmp(&other.as_f64()) },
-            Type::String => unsafe { self.as_str().partial_cmp(other.as_str()) },
+            Type::Float => unsafe { self.as_f64_unchecked().partial_cmp(&other.as_f64()) },
+            Type::String => unsafe { self.as_str_unchecked().partial_cmp(other.as_str()) },
             Type::Array => {
                 unimplemented!("Can not yet compare objects of type array")
             }
         }
-    }
-}
-
-impl From<i64> for Object {
-    fn from(value: i64) -> Object {
-        Object::int(value)
-    }
-}
-
-impl From<bool> for Object {
-    fn from(value: bool) -> Object {
-        Object::bool(value)
-    }
-}
-
-impl From<f64> for Object {
-    fn from(value: f64) -> Self {
-        Float::from_f64(value)
-    }
-}
-
-impl From<&str> for Object {
-    fn from(value: &str) -> Self {
-        String::from_str(value)
-    }
-}
-
-impl From<RString> for Object {
-    fn from(value: RString) -> Self {
-        String::from_string(value)
-    }
-}
-
-impl From<&[Object]> for Object {
-    fn from(value: &[Object]) -> Self {
-        Array::from_slice(&value)
-    }
-}
-impl From<Vec<Object>> for Object {
-    fn from(value: Vec<Object>) -> Self {
-        Array::from_vec(value)
     }
 }
 
@@ -266,14 +268,14 @@ impl Float {
         dealloc(obj.as_ptr(), Layout::new::<Self>());
     }
 
-    fn from_f64(value: f64) -> Object {
+    fn from_f64(value: f64, gc: &mut GC) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Float);
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => value );
 
         // Add allocated object to GC tracer
-        GC.lock().unwrap().trace(ptr);
+        gc.trace(ptr);
 
         ptr
     }
@@ -295,20 +297,20 @@ impl String {
         dealloc(ptr.as_ptr(), Layout::new::<Self>());
     }
 
-    fn from_string(value: RString) -> Object {
+    fn from_string(value: RString, gc: &mut GC) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::String);
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
         init!(obj.value => value);
 
         // Add allocated object to GC tracer
-        GC.lock().unwrap().trace(ptr);
+        gc.trace(ptr);
 
         ptr
     }
 
-    fn from_str(value: &str) -> Object {
-        Self::from_string(value.to_string())
+    fn from_str(value: &str, gc: &mut GC) -> Object {
+        Self::from_string(value.to_string(), gc)
     }
 }
 
@@ -329,21 +331,21 @@ impl Array {
         dealloc(ptr.as_ptr(), Layout::new::<Self>());
     }
 
-    fn from_vec(vec: Vec<Object>) -> Object {
+    fn from_vec(vec: Vec<Object>, gc: &mut GC) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Array);
         let obj = unsafe { ptr.get_mut::<Self>() };
         obj.header.marked = false;
-        init!(obj.value => vec );
+        init!(obj.value => vec);
 
         // Add allocated object to GC tracer
-        GC.lock().unwrap().trace(ptr);
+        gc.trace(ptr);
 
         ptr
     }
 
     /// Creates a new Pointer object pointing to Array
-    fn from_slice(slice: &[Object]) -> Object {
-        Self::from_vec(slice.to_vec())
+    fn from_slice(slice: &[Object], gc: &mut GC) -> Object {
+        Self::from_vec(slice.to_vec(), gc)
     }
 }
 
@@ -352,16 +354,13 @@ impl Display for Object {
         match self.tag() {
             Type::Null => f.write_str("null")?,
             Type::Bool => f.write_str(if self.as_bool() { "true" } else { "false" })?,
-            Type::Float =>
-            // Safety: We've checked the pointer tag
-            unsafe { f.write_str(&self.as_f64().to_string())? },
+            Type::Float => unsafe { f.write_str(&self.as_f64_unchecked().to_string())? },
             Type::Int => f.write_str(&self.as_int().to_string())?,
-            Type::String =>
-            // Safety: We've checked the pointer tag
-            unsafe { f.write_str(self.as_str())? },
+            Type::String => unsafe { f.write_str(self.as_str_unchecked())? },
             Type::Array => {
+                let values = unsafe { self.as_vec_unchecked() };
                 f.write_char('[')?;
-                for (i, p) in unsafe { self.as_vec() }.iter().enumerate() {
+                for (i, p) in values.iter().enumerate() {
                     if i > 0 {
                         f.write_str(", ")?;
                     }
@@ -403,15 +402,19 @@ fn allocate(layout: Layout) -> *mut u8 {
 macro_rules! impl_arith {
     ($func_name:ident, $op:tt) => {
         #[inline]
-        pub fn $func_name(self, rhs: Self) -> Result<Object, Error> {
+        pub fn $func_name(self, rhs: Self, gc: &mut GC) -> Result<Object, Error> {
 
             if self.tag() != rhs.tag() {
                 return Err(Error::TypeError(format!("Can not {} objects of different type {} and {}", stringify!($op), self.tag(), rhs.tag())))
             }
 
             let result = match self.tag() {
-                Type::Int => Object::from(self.as_int() $op rhs.as_int()),
-                Type::Float => Object::from(unsafe{ self.as_f64() $op rhs.as_f64() }),
+                Type::Int => Object::int(self.as_int() $op rhs.as_int()),
+
+                // Safety: We've already asserted the object type
+                Type::Float => unsafe {
+                    Object::float(self.as_f64_unchecked() $op rhs.as_f64_unchecked(), gc)
+                }
                 _ => return Err(Error::TypeError(format!("Can not {} on objects of type {}", stringify!($op), self.tag()))),
             };
 
@@ -423,9 +426,9 @@ macro_rules! impl_arith {
 macro_rules! impl_logical {
     ($func_name:ident, $op:tt) => {
         #[inline]
-        pub fn $func_name(self, rhs: Self) -> Result<Object, Error> {
+        pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             let result = match (self.tag(), rhs.tag()) {
-                (Type::Bool, Type::Bool) => Object::from(self.as_bool() $op rhs.as_bool()),
+                (Type::Bool, Type::Bool) => Object::bool(self.as_bool() $op rhs.as_bool()),
                 _ => return Err(Error::TypeError(format!("Can not {} objects of type {} and {}", stringify!($op), self.tag(), rhs.tag())))
             };
             Ok(result)
@@ -436,13 +439,13 @@ macro_rules! impl_logical {
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
         #[inline]
-        pub fn $func_name(self, rhs: Self) -> Result<Object, Error> {
+        pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             if self.tag() != rhs.tag() {
                 return Err(Error::TypeError(format!("Can not compare objects of type {} and {}", self.tag(), rhs.tag())));
             }
 
             // Delegate actual comparison to PartialOrd/PartialEq implementation
-            Ok(Object::from(self $op rhs,))
+            Ok(Object::bool(self $op rhs,))
         }
     };
 }
@@ -477,8 +480,8 @@ mod tests {
 
     #[test]
     fn test_object_bool() {
-        let t = Object::from(true);
-        let f = Object::from(false);
+        let t = Object::bool(true);
+        let f = Object::bool(false);
 
         assert_eq!(t.tag(), Type::Bool);
         assert_eq!(f.tag(), Type::Bool);
@@ -492,19 +495,19 @@ mod tests {
 
     #[test]
     fn test_object_int() {
-        let obj = Object::from(1);
+        let obj = Object::int(1);
         assert_eq!(obj.tag(), Type::Int);
         assert_eq!(obj.as_int(), 1);
 
-        let obj = Object::from(-1);
+        let obj = Object::int(-1);
         assert_eq!(obj.tag(), Type::Int);
         assert_eq!(obj.as_int(), -1);
 
-        let obj = Object::from(MAX_INT);
+        let obj = Object::int(MAX_INT);
         assert_eq!(obj.tag(), Type::Int);
         assert_eq!(obj.as_int(), MAX_INT);
 
-        let obj = Object::from(MIN_INT);
+        let obj = Object::int(MIN_INT);
         assert_eq!(obj.tag(), Type::Int);
         assert_eq!(obj.as_int(), MIN_INT);
     }
@@ -521,48 +524,38 @@ mod tests {
 
     #[test]
     fn test_object_string() {
-        let ptr = Object::from("Hello, world!");
-        assert_eq!(ptr.tag(), Type::String);
-        assert!(ptr.is_heap_allocated());
-        unsafe {
-            assert_eq!(ptr.as_str(), "Hello, world!");
-            String::destroy(ptr);
-        }
+        let mut gc = GC::new();
+        let obj = Object::string("Hello, world!", &mut gc);
+        assert_eq!(obj.tag(), Type::String);
+        assert!(obj.is_heap_allocated());
+        assert_eq!(obj.as_str(), "Hello, world!");
     }
 
     #[test]
     fn test_pointer_float() {
-        let ptr = Object::from(3.1415);
-        assert_eq!(ptr.tag(), Type::Float);
-        assert!(ptr.is_heap_allocated());
-
-        unsafe {
-            assert_eq!(ptr.as_f64(), 3.1415);
-            Float::destroy(ptr);
-        }
+        let mut gc = GC::new();
+        let obj = Object::float(3.1415, &mut gc);
+        assert_eq!(obj.tag(), Type::Float);
+        assert!(obj.is_heap_allocated());
+        assert_eq!(obj.as_f64(), 3.1415);
     }
 
     #[test]
     fn test_pointer_empty_array() {
-        let ptr = Object::from(vec![]);
+        let mut gc = GC::new();
+        let ptr = Array::from_slice(&[], &mut gc);
         assert_eq!(ptr.tag(), Type::Array);
         assert!(ptr.is_heap_allocated());
-        unsafe {
-            assert_eq!(ptr.as_vec().len(), 0);
-            Array::destroy(ptr);
-        }
+        assert_eq!(ptr.as_vec().len(), 0);
     }
 
     #[test]
     fn test_pointer_array() {
-        let ptr = Object::from(vec![Object::null()]);
+        let mut gc = GC::new();
+        let ptr = Array::from_slice(&[Object::null()], &mut gc);
         assert_eq!(ptr.tag(), Type::Array);
-
-        unsafe {
-            assert_eq!(ptr.as_vec().len(), 1);
-            assert_eq!(ptr.as_vec().get(0), Some(&Object::null()));
-            Array::destroy(ptr);
-        }
+        assert_eq!(ptr.as_vec().len(), 1);
+        assert_eq!(ptr.as_vec().get(0), Some(&Object::null()));
     }
 
     // TODO: Test PartialEq & PartialOrd implementations

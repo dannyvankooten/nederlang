@@ -2,6 +2,8 @@ use std::fmt::Display;
 use std::fmt::Write;
 
 use crate::ast::*;
+use crate::gc;
+use crate::gc::GC;
 use crate::object::Error;
 use crate::object::Object;
 use crate::symbols::*;
@@ -137,6 +139,7 @@ pub(crate) struct Compiler {
     instructions: Vec<u8>,
     last_instruction: Option<OpCode>,
     loop_contexts: Vec<LoopContext>,
+    gc: GC,
 }
 
 impl Compiler {
@@ -147,6 +150,7 @@ impl Compiler {
             constants: Vec::with_capacity(64),
             last_instruction: None,
             loop_contexts: Vec::new(),
+            gc: GC::new(),
         }
     }
 
@@ -318,7 +322,7 @@ impl Compiler {
         const_value: &ExprInt,
         operator: &Operator,
     ) -> Result<(), Error> {
-        let idx_constant = self.add_constant(Object::from(const_value.value));
+        let idx_constant = self.add_constant(Object::int(const_value.value));
         let symbol = self.symbols.resolve(varname);
         match symbol {
             Some(symbol) => {
@@ -360,15 +364,17 @@ impl Compiler {
                 }
             }
             Expr::Float(expr) => {
-                let idx = self.add_constant(Object::from(expr.value));
+                let obj = Object::float(expr.value, &mut self.gc);
+                let idx = self.add_constant(obj);
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Int(expr) => {
-                let idx = self.add_constant(Object::from(expr.value));
+                let idx = self.add_constant(Object::int(expr.value));
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::String(expr) => {
-                let idx = self.add_constant(Object::from(expr.value.clone()));
+                let obj = Object::string(&expr.value, &mut self.gc);
+                let idx = self.add_constant(obj);
                 self.add_instruction(OpCode::Const, idx);
             }
             Expr::Identifier(name) => {
@@ -550,7 +556,7 @@ impl Compiler {
                 // Switch back to previous scope again
                 let num_locals = self.symbols.leave_context() as u8;
                 let info = (pos_start_function << 16) as u32 + num_locals as u32;
-                let idx = self.add_constant(Object::from(info as i64));
+                let idx = self.add_constant(Object::int(info as i64));
 
                 self.add_instruction(OpCode::Const, idx);
 
@@ -597,6 +603,7 @@ impl Compiler {
 pub(crate) struct Program {
     pub(crate) constants: Vec<Object>,
     pub(crate) instructions: Vec<u8>,
+    pub(crate) gc: gc::GC,
 }
 
 impl Program {
@@ -617,6 +624,7 @@ impl Program {
         Ok(Self {
             constants,
             instructions,
+            gc: compiler.gc,
         })
     }
 }
