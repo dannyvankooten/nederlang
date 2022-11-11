@@ -199,6 +199,41 @@ zolang n < 10 {
 }
 ```
 
+### Ingebouwde functies
+
+Nederlang komt met enkele ingebouwde functies die overal beschikbaar zijn.
+
+`print` om iets naar de standaard uitvoer te schrijven.
+
+```
+print("Hey {}. Je bent nummer {} die dit echt leest.", "jij", 1337)
+``` 
+
+`bool` om een object naar een boolean om te zetten:
+
+```
+bool(1)             // ja
+```
+
+`int` om een object naar een geheel getal om te zetten:
+
+```
+int("15")           // 15
+```
+
+`float` om een object naar een decimaal getal om te zetten:
+
+```
+float("3.1415")     // 3.1415
+```
+
+`string` om een object naar tekst om te zetten:
+
+```
+string(1)           // "1"
+```
+
+
 
 ## Licentie
 
