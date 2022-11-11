@@ -193,12 +193,12 @@ fn run(program: Program) -> Result<Object, Error> {
             }
             OpCode::JumpIfFalse => {
                 let condition = pop(&mut stack);
-                // TODO: Make this pretty. Also, no type coercion maybe?
+
                 let evaluation = match condition.tag() {
-                    Type::Bool => condition.as_bool(),
-                    Type::Int => condition.as_int() > 0,
-                    _ => panic!("YOLO TO THE BONE!"),
-                };
+                    Type::Bool => Ok(condition.as_bool()),
+                    Type::Int => Ok(condition.as_int() > 0),
+                    _ => Err(Error::TypeError(format!("Kan object van type {} niet gebruiken als voorwaarde. Gebruik bool() om te type casten naar boolean.", condition.tag()))),
+                }?;
                 if evaluation == true {
                     frame.ip += 3;
                 } else {
