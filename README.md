@@ -1,12 +1,12 @@
-# Nederlang 
+# Nederlang 🇳🇱
 
-Nederlang is een geïnterpreteerde programmeertaal, in het Nederlands! Met als bestandsnaam extensie.... `.nl`! Het maakt gebruik van dynamische types en is geïnspireerd door talen als JavaScript, Python en C.  
+Nederlang is een geïnterpreteerde programmeertaal, in het Nederlands! Met als bestandsnaam extensie... `.nl`! Het maakt gebruik van dynamische types en is geïnspireerd door talen als JavaScript, Python en C.  
 
 De Nederlangcode wordt gecompileerd naar bytecode en dan in een virtuele machine uitgevoerd. De compiler en virtuele machine zijn geschreven in Rust.
 
 Dit hele project is natuurlijk een grapje en vooral bedoeld om van te leren. Het doel is om een taal neer te zetten die compleet genoeg is om [Advent of Code](https://adventofcode.com/) mee te kunnen doen.
 
-## Spelen
+## Proberen
 
 Je kunt Nederlang direct vanuit je browser proberen in de [Nederlang speeltuin](https://dannyvankooten.github.io/nederlang/playground/). 
 
