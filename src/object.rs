@@ -46,14 +46,14 @@ const MIN_INT: i64 = std::i64::MIN >> VALUE_SHIFT_BITS;
 pub enum Type {
     // The types below are all stored directly inside the pointer
     Null = 0b000,
-    Int = 0b001,
-    Bool = 0b010,
+    Int,
+    Bool,
+    Function,
 
     // The types below are all heap-allocated
-    Float = 0b011,
-    String = 0b100,
-    Array = 0b101,
-    Function = 0b110,
+    Float,
+    String,
+    Array,
     // 0b110
     // 0b111
 }
@@ -92,8 +92,9 @@ impl Object {
     }
 
     /// Create a new function value
-    pub fn function(ip: u32, num_locals: u8) -> Self {
-        let value = ((ip as i64) << 32) + num_locals as i64;
+    pub fn function(ip: u16, num_locals: u8) -> Self {
+        // Honestly I wanted the IP to be u32 but somehow this (silently!) overflows in WebAssembly...
+        let value = ((ip as i64) << 16) | num_locals as i64;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
@@ -132,10 +133,10 @@ impl Object {
 
     /// Returns the function value of this object
     /// Note that is up to the caller to ensure this pointer is of the correct type
-    pub fn as_function(self) -> [u32; 2] {
+    pub fn as_function(self) -> [u16; 2] {
         let value = self.0 as i64 >> VALUE_SHIFT_BITS;
-        let ip = (value >> 32) as u32;
-        let num_locals = (value & 0xFFFF) as u32;
+        let ip = (value >> 16) as u16;
+        let num_locals = (value & 0xFFFF) as u16;
         [ip, num_locals]
     }
 

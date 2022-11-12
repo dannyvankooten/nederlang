@@ -270,7 +270,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 let [ip, num_locals] = obj.as_function();
 
                 // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals - num_args as u32 {
+                for _ in 0..num_locals - num_args as u16 {
                     stack.push(Object::null());
                 }
 

@@ -251,6 +251,7 @@ fn test_function_vars() {
 
 #[test]
 fn test_named_functions() {
+    assert!(10 as u32 as i64 as u32 == 10);
     assert!(run_str("stel a = 100; a();").is_err());
     assert!(run_str("stel a = functie() { 1 }; a();").is_ok());
 
