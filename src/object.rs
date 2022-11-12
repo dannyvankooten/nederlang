@@ -92,9 +92,8 @@ impl Object {
     }
 
     /// Create a new function value
-    pub fn function(ip: u16, num_locals: u8) -> Self {
-        // Honestly I wanted the IP to be u32 but somehow this (silently!) overflows in WebAssembly...
-        let value = ((ip as i64) << 16) | num_locals as i64;
+    pub fn function(ip: u32, num_locals: u16) -> Self {
+        let value = ((ip as i64) << 16) + num_locals as i64;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
@@ -133,10 +132,16 @@ impl Object {
 
     /// Returns the function value of this object
     /// Note that is up to the caller to ensure this pointer is of the correct type
-    pub fn as_function(self) -> [u16; 2] {
+    pub fn as_function(self) -> [u32; 2] {
         let value = self.0 as i64 >> VALUE_SHIFT_BITS;
-        let ip = (value >> 16) as u16;
-        let num_locals = (value & 0xFFFF) as u16;
+
+        // lower 16-bits store the number of locals
+        let num_locals = (value & 0xFFFF) as u32;
+
+        // next 32 bits stores the IP
+        let ip = (value >> 16) as u32;
+
+        // that leaves 64-32-16-3=13 bits unused
         [ip, num_locals]
     }
 
@@ -494,6 +499,20 @@ impl Object {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_object_function() {
+        assert_eq!(Object::function(1, 1).tag(), Type::Function);
+        assert_eq!(Object::function(1, 1).as_function(), [1, 1]);
+        assert_eq!(
+            Object::function(1, 0xFFFF as u16).as_function(),
+            [1, 0xFFFF as u32]
+        );
+        assert_eq!(
+            Object::function(0xFFFFFFFF, 1).as_function(),
+            [0xFFFFFFFF, 1]
+        );
+    }
 
     #[test]
     fn test_object_null() {

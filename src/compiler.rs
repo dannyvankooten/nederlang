@@ -550,10 +550,10 @@ impl Compiler {
                 );
 
                 // Switch back to previous scope again
-                let num_locals = self.symbols.leave_context() as u8;
+                let num_locals = self.symbols.leave_context() as u16;
 
                 // Create function object and store as constant
-                let obj = Object::function(pos_start_function as u16, num_locals);
+                let obj = Object::function(pos_start_function as u32, num_locals);
                 let idx = self.add_constant(obj);
                 self.add_instruction(OpCode::Const, &[idx]);
 
