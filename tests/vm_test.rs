@@ -64,6 +64,22 @@ fn test_infix_expression() {
 }
 
 #[test]
+fn test_const_local_cmp() {
+    assert_eq!(run_str("stel n = 100; n == 100"), Ok(Object::bool(true)));
+    assert_eq!(run_str("stel n = 100; n != 100"), Ok(Object::bool(false)));
+    assert_eq!(run_str("stel n = 100; n > 100"), Ok(Object::bool(false)));
+    assert_eq!(run_str("stel n = 100; n >= 100"), Ok(Object::bool(true)));
+    assert_eq!(run_str("stel n = 100; n < 100"), Ok(Object::bool(false)));
+    assert_eq!(run_str("stel n = 100; n <= 100"), Ok(Object::bool(true)));
+    assert_eq!(run_str("stel n = 100; n <= 100"), Ok(Object::bool(true)));
+    assert_eq!(run_str("stel n = 100; n + 2"), Ok(Object::int(102)));
+    assert_eq!(run_str("stel n = 100; n - 2"), Ok(Object::int(98)));
+    assert_eq!(run_str("stel n = 100; n / 2"), Ok(Object::int(50)));
+    assert_eq!(run_str("stel n = 100; n * 2"), Ok(Object::int(200)));
+    assert_eq!(run_str("stel n = 100; n % 2"), Ok(Object::int(0)));
+}
+
+#[test]
 fn test_logical_andor() {
     assert_eq!(run_str("ja && ja"), Ok(Object::bool(true)));
     assert_eq!(run_str("ja && nee"), Ok(Object::bool(false)));
