@@ -64,15 +64,7 @@ fn call_type(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
         )));
     }
 
-    let t = match args[0].tag() {
-        Type::Null => "null",
-        Type::Bool => "bool",
-        Type::Float => "float",
-        Type::Int => "int",
-        Type::String => "string",
-        Type::Array => "array",
-    };
-    Ok(Object::string(t, gc))
+    Ok(Object::string(&args[0].tag().to_string(), gc))
 }
 
 /// Casts the given object to a string object
@@ -90,9 +82,10 @@ fn call_string(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
         Type::Float => unsafe { args[0].as_f64_unchecked().to_string() },
         Type::Int => args[0].as_int().to_string(),
         Type::String => return Ok(args[0]),
-        Type::Array => {
+        Type::Array | Type::Function => {
             return Err(Error::ArgumentError(format!(
-                "kan geen string maken van een array"
+                "kan geen string maken van een {}",
+                args[0].tag()
             )))
         }
     };
@@ -115,6 +108,12 @@ fn call_bool(args: &[Object]) -> Result<Object, Error> {
         Type::Int => args[0].as_int() > 0,
         Type::String => unsafe { args[0].as_str_unchecked().len() > 0 },
         Type::Array => unsafe { args[0].as_vec_unchecked().len() > 0 },
+        Type::Function => {
+            return Err(Error::ArgumentError(format!(
+                "kan geen bool maken van een {}",
+                args[0].tag()
+            )))
+        }
     };
     Ok(Object::bool(result))
 }
@@ -150,9 +149,10 @@ fn call_int(args: &[Object]) -> Result<Object, Error> {
                 }
             }
         },
-        Type::Array => {
+        Type::Array | Type::Function => {
             return Err(Error::ArgumentError(format!(
-                "kan geen integer maken van een array"
+                "kan geen int maken van een {}",
+                args[0].tag()
             )))
         }
     };
@@ -191,9 +191,10 @@ fn call_float(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
                 }
             }
         },
-        Type::Array => {
+        Type::Array | Type::Function => {
             return Err(Error::ArgumentError(format!(
-                "kan geen float maken van een array"
+                "kan geen float maken van een {}",
+                args[0].tag()
             )))
         }
     };

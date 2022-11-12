@@ -251,6 +251,9 @@ fn test_function_vars() {
 
 #[test]
 fn test_named_functions() {
+    assert!(run_str("stel a = 100; a();").is_err());
+    assert!(run_str("stel a = functie() { 1 }; a();").is_ok());
+
     assert_eq!(
         run_str("functie optellen(a, b) { a + b }; optellen(10, 20)"),
         Ok(Object::int(30))

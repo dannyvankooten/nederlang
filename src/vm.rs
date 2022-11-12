@@ -98,11 +98,11 @@ fn run(program: Program) -> Result<Object, Error> {
 
     macro_rules! impl_binary_const_local_op_method {
         ($op:tt) => {{
-            let left = stack[frame.base_pointer + read_u8_operand!(instructions, frame.ip)];
-            let right = constants[read_u8_operand!(instructions, frame.ip + 1)];
+            let left = stack[frame.base_pointer + read_u16_operand!(instructions, frame.ip)];
+            let right = constants[read_u16_operand!(instructions, frame.ip + 2)];
             let result = left.$op(right, &mut gc)?;
             stack.push(result);
-            frame.ip += 3;
+            frame.ip += 5;
         }};
     }
 
@@ -260,16 +260,17 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::Call => {
                 let num_args = read_u8_operand!(instructions, frame.ip);
                 let base_pointer = stack.len() - 1 - num_args;
-
-                // The last item on the stack is a 61-bit integer:
-                // Last 16 bits contain the number of local variables of the called function
-                // Next 16 bits contains the instruction pointer for where this function is stored
-                let fn_info = pop(&mut stack).as_int();
-                let ip = (fn_info >> 16) as usize;
-                let num_locals = (fn_info & 0x0000FFFF) as u16;
+                let obj = pop(&mut stack);
+                if obj.tag() != Type::Function {
+                    return Err(Error::TypeError(format!(
+                        "object van type {} is not aanroepbaar",
+                        obj.tag()
+                    )));
+                }
+                let [ip, num_locals] = obj.as_function();
 
                 // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals - num_args as u16 {
+                for _ in 0..num_locals - num_args as u32 {
                     stack.push(Object::null());
                 }
 

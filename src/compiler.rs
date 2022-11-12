@@ -16,10 +16,7 @@ macro_rules! byte {
 
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
-        unsafe {
-            (*$instructions.get_unchecked($ip + 1) as usize)
-                + ((*$instructions.get_unchecked($ip + 2) as usize) << 8)
-        }
+        ($instructions[$ip + 1] as usize) + (($instructions[$ip + 2] as usize) << 8)
     };
 }
 
@@ -81,16 +78,13 @@ impl From<u8> for OpCode {
 }
 
 impl OpCode {
-    /// Returns the number of operands for the OpCode variant
-    fn num_operands(&self) -> usize {
+    fn operands(&self) -> &[usize] {
         match self {
-            // OpCodes with 2 operands:
-            OpCode::Const
-            | OpCode::Jump
-            | OpCode::JumpIfFalse
+            // OpCodes with 1 operand of 2 bytes
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => &[2],
 
-            // TODO: The following should ideally have 2 operands of 2 bytes each
-            | OpCode::GtLocalConst
+            // OpCodes with 2 operands of 2 bytes
+            OpCode::GtLocalConst
             | OpCode::GteLocalConst
             | OpCode::LtLocalConst
             | OpCode::LteLocalConst
@@ -100,18 +94,19 @@ impl OpCode {
             | OpCode::SubtractLocalConst
             | OpCode::MultiplyLocalConst
             | OpCode::DivideLocalConst
-            | OpCode::ModuloLocalConst
-            | OpCode::CallBuiltin => 2,
+            | OpCode::ModuloLocalConst => &[2, 2],
 
-            // OpCodes with 1 operand:
+            OpCode::CallBuiltin => &[1, 1],
+
+            // OpCodes with 1 operand op 1 byte:
             OpCode::Call
             | OpCode::SetLocal
             | OpCode::GetGlobal
             | OpCode::SetGlobal
-            | OpCode::GetLocal => 1,
+            | OpCode::GetLocal => &[1],
 
             // Single opcode (no operands)
-            _ => 0,
+            _ => &[],
         }
     }
 }
@@ -156,32 +151,29 @@ impl Compiler {
         }
     }
 
-    fn add_instruction(&mut self, op: OpCode, value: usize) -> usize {
+    fn add_instruction(&mut self, op: OpCode, operands: &[usize]) -> usize {
         let bytecode = &mut self.instructions;
         let pos = bytecode.len();
 
         // push OpCode itself
         bytecode.push(op as u8);
 
-        // push operands of OpCode
-        match op.num_operands() {
-            // Opcodes with 2 operands (2^16 max value)
-            2 => {
-                bytecode.push(byte!(value, 0));
-                bytecode.push(byte!(value, 1));
-            }
-            // OpCodes with a single operand (2^8 max value)
-            1 => {
-                bytecode.push(byte!(value, 0));
-            }
+        debug_assert_eq!(operands.len(), op.operands().len());
 
-            // OpCodes with 0 operands:
-            0 => {
-                // In case we call add_instruction for an opcode that should have a value, throw a helpful panic here
-                assert_eq!(value, 0);
-            }
+        for (value, width) in std::iter::zip(operands, op.operands()) {
+            match width {
+                // Opcodes with 2 operands (2^16 max value)
+                2 => {
+                    bytecode.push(byte!(value, 0));
+                    bytecode.push(byte!(value, 1));
+                }
+                // OpCodes with a single operand (2^8 max value)
+                1 => {
+                    bytecode.push(byte!(value, 0));
+                }
 
-            _ => panic!("Invalid operator: {op:?}"),
+                _ => panic!("Invalid operator: {op:?}"),
+            }
         }
 
         // store last instruction so we can match on it
@@ -199,7 +191,7 @@ impl Compiler {
     /// Note that this currently only works with OpCodes that do not take any operand values
     #[inline]
     fn replace_last_instruction(&mut self, op: OpCode) {
-        assert_eq!(op.num_operands(), 0);
+        debug_assert_eq!(op.operands().len(), 0);
         let idx = self.instructions.len() - 1;
         self.instructions[idx] = op as u8;
         self.last_instruction = Some(op);
@@ -207,8 +199,8 @@ impl Compiler {
 
     #[inline]
     fn remove_last_instruction(&mut self) {
-        assert!(self.last_instruction.is_some());
-        assert_eq!(self.last_instruction.unwrap().num_operands(), 0);
+        debug_assert!(self.last_instruction.is_some());
+        debug_assert_eq!(self.last_instruction.unwrap().operands().len(), 0);
         self.instructions.pop();
         self.last_instruction = None;
     }
@@ -222,7 +214,8 @@ impl Compiler {
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
         assert_eq!(self.instructions[pos], op as u8);
-        assert_eq!(op.num_operands(), 2);
+        assert_eq!(op.operands().len(), 1);
+        assert_eq!(op.operands().first(), Some(&2));
 
         // TODO: For opcodes with less than 2 operands, we need to account for it here.
         self.instructions[pos + 1] = byte!(new_value, 0);
@@ -233,7 +226,7 @@ impl Compiler {
         // if block statement does not contain any other statements or expressions
         // simply push a NULL onto the stack
         if stmts.len() == 0 {
-            self.add_instruction(OpCode::Null, 0);
+            self.add_instruction(OpCode::Null, &[]);
             return Ok(());
         }
 
@@ -249,7 +242,7 @@ impl Compiler {
         match stmt {
             Stmt::Expr(expr) => {
                 self.compile_expression(expr)?;
-                self.add_instruction(OpCode::Pop, 0);
+                self.add_instruction(OpCode::Pop, &[]);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
@@ -257,19 +250,19 @@ impl Compiler {
                 self.compile_expression(value)?;
 
                 if symbol.scope == Scope::Global {
-                    self.add_instruction(OpCode::SetGlobal, symbol.index);
+                    self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
                 } else {
-                    self.add_instruction(OpCode::SetLocal, symbol.index);
+                    self.add_instruction(OpCode::SetLocal, &[symbol.index]);
                 }
             }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
                 self.compile_expression(expr)?;
-                self.add_instruction(OpCode::ReturnValue, 0);
+                self.add_instruction(OpCode::ReturnValue, &[]);
             }
             Stmt::Break => {
-                self.add_instruction(OpCode::Null, 0);
-                let ip = self.add_instruction(OpCode::Jump, JUMP_PLACEHOLDER_BREAK);
+                self.add_instruction(OpCode::Null, &[]);
+                let ip = self.add_instruction(OpCode::Jump, &[JUMP_PLACEHOLDER_BREAK]);
 
                 let ctx = match self.loop_contexts.iter_mut().last() {
                     Some(ctx) => ctx,
@@ -278,11 +271,11 @@ impl Compiler {
                 ctx.break_instructions.push(ip);
             }
             Stmt::Continue => {
-                self.add_instruction(OpCode::Null, 0);
+                self.add_instruction(OpCode::Null, &[]);
 
                 match self.loop_contexts.iter().last() {
                     Some(ctx) => {
-                        self.add_instruction(OpCode::Jump, ctx.start);
+                        self.add_instruction(OpCode::Jump, &[ctx.start]);
                     }
                     None => {
                         return Err(Error::SyntaxError(format!(
@@ -315,7 +308,7 @@ impl Compiler {
             Operator::Or => OpCode::Or,
             _ => unimplemented!("Operators of type {operator:?} not yet implemented."),
         };
-        self.add_instruction(opcode, 0);
+        self.add_instruction(opcode, &[]);
     }
 
     fn compile_const_var_infix_expression(
@@ -347,10 +340,7 @@ impl Compiler {
                     }
                 };
 
-                // TODO: Make it easier to add instructions that take multiple operands
-                self.instructions.push(op as u8);
-                self.instructions.push(symbol.index as u8);
-                self.instructions.push(idx_constant as u8);
+                self.add_instruction(op, &[symbol.index, idx_constant]);
             }
             None => return Err(Error::ReferenceError(format!("{varname} is not defined"))),
         }
@@ -362,33 +352,33 @@ impl Compiler {
         match expr {
             Expr::Bool(expr) => {
                 if expr.value {
-                    self.add_instruction(OpCode::True, 0);
+                    self.add_instruction(OpCode::True, &[]);
                 } else {
-                    self.add_instruction(OpCode::False, 0);
+                    self.add_instruction(OpCode::False, &[]);
                 }
             }
             Expr::Float(expr) => {
                 let obj = Object::float(expr.value, &mut self.gc);
                 let idx = self.add_constant(obj);
-                self.add_instruction(OpCode::Const, idx);
+                self.add_instruction(OpCode::Const, &[idx]);
             }
             Expr::Int(expr) => {
                 let idx = self.add_constant(Object::int(expr.value));
-                self.add_instruction(OpCode::Const, idx);
+                self.add_instruction(OpCode::Const, &[idx]);
             }
             Expr::String(expr) => {
                 let obj = Object::string(&expr.value, &mut self.gc);
                 let idx = self.add_constant(obj);
-                self.add_instruction(OpCode::Const, idx);
+                self.add_instruction(OpCode::Const, &[idx]);
             }
             Expr::Identifier(name) => {
                 let symbol = self.symbols.resolve(name);
                 match symbol {
                     Some(symbol) => {
                         if symbol.scope == Scope::Global {
-                            self.add_instruction(OpCode::GetGlobal, symbol.index);
+                            self.add_instruction(OpCode::GetGlobal, &[symbol.index]);
                         } else {
-                            self.add_instruction(OpCode::GetLocal, symbol.index);
+                            self.add_instruction(OpCode::GetLocal, &[symbol.index]);
                         }
                     }
                     None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
@@ -399,10 +389,10 @@ impl Compiler {
 
                 match expr.operator {
                     Operator::Negate | Operator::Subtract => {
-                        self.add_instruction(OpCode::Negate, 0);
+                        self.add_instruction(OpCode::Negate, &[]);
                     }
                     Operator::Not => {
-                        self.add_instruction(OpCode::Not, 0);
+                        self.add_instruction(OpCode::Not, &[]);
                     }
 
                     _ => {
@@ -431,11 +421,11 @@ impl Compiler {
 
                         if symbol.scope == Scope::Global {
                             // TODO: Create superinstruction for this?
-                            self.add_instruction(OpCode::SetGlobal, symbol.index);
-                            self.add_instruction(OpCode::GetGlobal, symbol.index);
+                            self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
+                            self.add_instruction(OpCode::GetGlobal, &[symbol.index]);
                         } else {
-                            self.add_instruction(OpCode::SetLocal, symbol.index);
-                            self.add_instruction(OpCode::GetLocal, symbol.index);
+                            self.add_instruction(OpCode::SetLocal, &[symbol.index]);
+                            self.add_instruction(OpCode::GetLocal, &[symbol.index]);
                         }
                     }
                     None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
@@ -466,12 +456,13 @@ impl Compiler {
             Expr::If(expr) => {
                 self.compile_expression(&expr.condition)?;
                 let pos_jump_before_consequence =
-                    self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
+                    self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
 
                 self.compile_block_statement(&expr.consequence)?;
                 self.remove_last_instruction_if(OpCode::Pop);
 
-                let pos_jump_after_consequence = self.add_instruction(OpCode::Jump, IP_PLACEHOLDER);
+                let pos_jump_after_consequence =
+                    self.add_instruction(OpCode::Jump, &[IP_PLACEHOLDER]);
 
                 // Change operand of last JumpIfFalse opcode to where we're currently at
                 self.change_instruction_operand_at(
@@ -484,7 +475,7 @@ impl Compiler {
                     self.compile_block_statement(alternative)?;
                     self.remove_last_instruction_if(OpCode::Pop);
                 } else {
-                    self.add_instruction(OpCode::Null, 0);
+                    self.add_instruction(OpCode::Null, &[]);
                 }
 
                 // Change operand of last JumpIfFalse opcode to where we're currently at
@@ -496,23 +487,24 @@ impl Compiler {
             }
             Expr::While(expr) => {
                 // TODO: Can we get rid of this now that empty block statement emit a NULL?
-                self.add_instruction(OpCode::Null, 0);
+                self.add_instruction(OpCode::Null, &[]);
                 self.loop_contexts
                     .push(LoopContext::new(self.instructions.len()));
                 let pos_before_condition = self.instructions.len();
                 self.compile_expression(&expr.condition)?;
 
-                let pos_jump_if_false = self.add_instruction(OpCode::JumpIfFalse, IP_PLACEHOLDER);
-                self.add_instruction(OpCode::Pop, 0);
+                let pos_jump_if_false =
+                    self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
+                self.add_instruction(OpCode::Pop, &[]);
                 self.compile_block_statement(&expr.body)?;
 
                 if self.last_instruction_is(OpCode::Pop) {
                     self.remove_last_instruction();
                 } else {
-                    self.add_instruction(OpCode::Null, 0);
+                    self.add_instruction(OpCode::Null, &[]);
                 }
 
-                self.add_instruction(OpCode::Jump, pos_before_condition);
+                self.add_instruction(OpCode::Jump, &[pos_before_condition]);
 
                 // Update jump statement for when initial condition evaluated to false (should skip over entire loop)
                 self.change_instruction_operand_at(
@@ -533,7 +525,7 @@ impl Compiler {
                 } else {
                     None
                 };
-                let jump_over_fn = self.add_instruction(OpCode::Jump, 0);
+                let jump_over_fn = self.add_instruction(OpCode::Jump, &[IP_PLACEHOLDER]);
 
                 // Compile function in a new scope
                 self.symbols.new_context();
@@ -548,7 +540,7 @@ impl Compiler {
                 if self.last_instruction_is(OpCode::Pop) {
                     self.replace_last_instruction(OpCode::ReturnValue);
                 } else if !self.last_instruction_is(OpCode::ReturnValue) {
-                    self.add_instruction(OpCode::Return, 0);
+                    self.add_instruction(OpCode::Return, &[]);
                 }
 
                 self.change_instruction_operand_at(
@@ -560,21 +552,19 @@ impl Compiler {
                 // Switch back to previous scope again
                 let num_locals = self.symbols.leave_context() as u8;
 
-                // We push a simple Integer object on the constants list
-                // Last 16 bits contain the number of locals
-                // Next 16 bits contains the offset in the instructions array this function was compiled to
-                let info = (pos_start_function << 16) as u32 + num_locals as u32;
-                let idx = self.add_constant(Object::int(info as i64));
-                self.add_instruction(OpCode::Const, idx);
+                // Create function object and store as constant
+                let obj = Object::function(pos_start_function as u32, num_locals);
+                let idx = self.add_constant(obj);
+                self.add_instruction(OpCode::Const, &[idx]);
 
                 // If this function received a name, define it in the scope
                 if let Some(symbol) = symbol {
                     if symbol.scope == Scope::Global {
-                        self.add_instruction(OpCode::SetGlobal, symbol.index);
+                        self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
                     } else {
-                        self.add_instruction(OpCode::SetLocal, symbol.index);
+                        self.add_instruction(OpCode::SetLocal, &[symbol.index]);
                     }
-                    self.add_instruction(OpCode::Const, idx);
+                    self.add_instruction(OpCode::Const, &[idx]);
                 }
             }
             Expr::Call(expr) => 'compile_call: {
@@ -584,14 +574,15 @@ impl Compiler {
 
                 if let Expr::Identifier(name) = &*expr.left {
                     if let Some(builtin) = builtins::resolve(name) {
-                        self.instructions.push(OpCode::CallBuiltin as u8);
-                        self.instructions.push(builtin as u8);
-                        self.instructions.push(expr.arguments.len() as u8);
+                        self.add_instruction(
+                            OpCode::CallBuiltin,
+                            &[builtin as usize, expr.arguments.len()],
+                        );
                         break 'compile_call;
                     }
                 }
                 self.compile_expression(&expr.left)?;
-                self.add_instruction(OpCode::Call, expr.arguments.len());
+                self.add_instruction(OpCode::Call, &[expr.arguments.len()]);
             }
 
             _ => unimplemented!("Can not yet compile expressions of type {expr:?}"),
@@ -627,7 +618,7 @@ impl Program {
         let mut compiler = Compiler::new();
 
         compiler.compile_block_statement(ast)?;
-        compiler.add_instruction(OpCode::Halt, 0);
+        compiler.add_instruction(OpCode::Halt, &[]);
 
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
         let mut instructions = compiler.instructions;
@@ -707,27 +698,31 @@ pub fn bytecode_to_human(code: &[u8], positions: bool) -> String {
             str.push(' ');
         }
         let op = OpCode::from(code[ip]);
-
         if positions {
             write!(str, "\n{ip:4} ").unwrap();
         }
         str.push_str(&op.to_string());
 
-        match op.num_operands() {
-            // OpCodes with 2 operands:
-            2 => {
-                write!(str, "({})", read_u16_operand!(code, ip)).unwrap();
+        if op.operands().len() > 0 {
+            str.push('(');
+        }
+        for (i, width) in op.operands().iter().enumerate() {
+            if i > 0 {
+                str.push(',');
             }
 
-            // OpCodes with 1 operand:
-            1 => {
-                write!(str, "({})", code[ip + 1]).unwrap();
-            }
-
-            _ => (),
+            match width {
+                2 => write!(str, "{}", read_u16_operand!(code, ip)).unwrap(),
+                1 => write!(str, "{}", code[ip + 1]).unwrap(),
+                _ => panic!("invalid operand width"),
+            };
+            ip += width;
+        }
+        if op.operands().len() > 0 {
+            str.push(')');
         }
 
-        ip += 1 + op.num_operands();
+        ip += 1;
     }
 
     str
@@ -902,7 +897,7 @@ mod tests {
     fn test_call_builtin() {
         assert_eq!(
             run("print(\"hallo\")"),
-            "Const(0) CallBuiltin(256) Pop Halt"
+            "Const(0) CallBuiltin(0,1) Pop Halt"
         )
     }
 }

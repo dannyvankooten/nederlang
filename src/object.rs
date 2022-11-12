@@ -53,6 +53,7 @@ pub enum Type {
     Float = 0b011,
     String = 0b100,
     Array = 0b101,
+    Function = 0b110,
     // 0b110
     // 0b111
 }
@@ -90,6 +91,12 @@ impl Object {
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Int)
     }
 
+    /// Create a new function value
+    pub fn function(ip: u32, num_locals: u8) -> Self {
+        let value = ((ip as i64) << 32) + num_locals as i64;
+        Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
+    }
+
     /// Create a new (garbage-collected) String value
     pub fn string(value: &str, gc: &mut GC) -> Self {
         String::from_str(value, gc)
@@ -121,6 +128,15 @@ impl Object {
     /// Note that is up to the caller to ensure this pointer is of the correct type
     pub fn as_int(self) -> i64 {
         self.0 as i64 >> VALUE_SHIFT_BITS
+    }
+
+    /// Returns the function value of this object
+    /// Note that is up to the caller to ensure this pointer is of the correct type
+    pub fn as_function(self) -> [u32; 2] {
+        let value = self.0 as i64 >> VALUE_SHIFT_BITS;
+        let ip = (value >> 32) as u32;
+        let num_locals = (value & 0xFFFF) as u32;
+        [ip, num_locals]
     }
 
     /// Returns the f64 value of this object pointer
@@ -222,6 +238,7 @@ impl PartialEq for Object {
             Type::Null | Type::Bool | Type::Int => self.as_int() == other.as_int(),
             Type::Float => unsafe { self.as_f64_unchecked() == other.as_f64_unchecked() },
             Type::String => unsafe { self.as_str_unchecked() == other.as_str_unchecked() },
+            Type::Function => self.0 == other.0,
             Type::Array => {
                 unimplemented!("Can not yet compare objects of type array")
             }
@@ -237,7 +254,7 @@ impl PartialOrd for Object {
             Type::Null | Type::Bool | Type::Int => self.as_int().partial_cmp(&other.as_int()),
             Type::Float => unsafe { self.as_f64_unchecked().partial_cmp(&other.as_f64()) },
             Type::String => unsafe { self.as_str_unchecked().partial_cmp(other.as_str()) },
-            Type::Array => {
+            Type::Array | Type::Function => {
                 unimplemented!("Can not yet order objects of type array")
             }
         }
@@ -371,6 +388,7 @@ impl Display for Object {
                 }
                 f.write_char(']')?;
             }
+            Type::Function => f.write_str("functie")?,
         }
         Ok(())
     }
@@ -378,21 +396,22 @@ impl Display for Object {
 
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Type::Null => f.write_str("null")?,
-            Type::Bool => f.write_str("bool")?,
-            Type::Float => f.write_str("float")?,
-            Type::Int => f.write_str("int")?,
-            Type::String => f.write_str("string")?,
-            Type::Array => f.write_str("array")?,
+        let str = match self {
+            Type::Null => "null",
+            Type::Bool => "bool",
+            Type::Float => "float",
+            Type::Int => "int",
+            Type::String => "string",
+            Type::Array => "array",
+            Type::Function => "functie",
         };
-
-        Ok(())
+        f.write_str(str)
     }
 }
 
 /// Allocate a chunk of memory with the given layout
 fn allocate(layout: Layout) -> *mut u8 {
+    // Safety: we only call this function for types with a non-zero layout
     let ptr = unsafe { alloc(layout) };
 
     if ptr.is_null() {
