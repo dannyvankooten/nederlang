@@ -1,6 +1,6 @@
 use crate::{
     gc::GC,
-    object::{Object, Type},
+    object::{Error, Object, Type},
 };
 
 #[repr(u8)]
@@ -25,7 +25,7 @@ pub(crate) fn resolve(name: &str) -> Option<Builtin> {
     }
 }
 
-pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Object {
+pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Result<Object, Error> {
     match builtin {
         Builtin::Print => call_print(args),
         Builtin::Type => call_type(args, gc),
@@ -39,27 +39,30 @@ pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Object {
 /// Prints all the given arguments using a very simple format scheme
 /// Example:
 ///     print("Hallo {}!", "wereld") => prints "Hallo wereld" to stdout
-fn call_print(mut args: &[Object]) -> Object {
+fn call_print(args: &[Object]) -> Result<Object, Error> {
     if args.len() > 0 {
-        let mut format_str = args[0].to_string();
-        args = &args[1..];
+        let mut args = args.iter();
+        let mut format_str = args.next().unwrap().to_string();
 
-        while format_str.contains("{}") && args.len() > 0 {
-            format_str = format_str.replacen("{}", &args.first().unwrap().to_string(), 1);
-            args = &args[1..];
+        while let Some(replacement) = args.next() {
+            format_str = format_str.replacen("{}", &replacement.to_string(), 1);
         }
+
         print!("{format_str}");
     }
 
     println!();
-
-    Object::null()
+    Ok(Object::null())
 }
 
 // Returns the given type of an object as a string object
-fn call_type(args: &[Object], gc: &mut GC) -> Object {
-    // TODO: return error here
-    assert!(args.len() == 1);
+fn call_type(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "type() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
+    }
 
     let t = match args[0].tag() {
         Type::Null => "null",
@@ -69,78 +72,131 @@ fn call_type(args: &[Object], gc: &mut GC) -> Object {
         Type::String => "string",
         Type::Array => "array",
     };
-    Object::string(t, gc)
+    Ok(Object::string(t, gc))
 }
 
 /// Casts the given object to a string object
-fn call_string(args: &[Object], gc: &mut GC) -> Object {
-    // TODO: return error here
-    assert!(args.len() == 1);
+fn call_string(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "string() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
+    }
 
     let t = match args[0].tag() {
         Type::Null => String::from(""),
         Type::Bool => args[0].as_bool().to_string(),
         Type::Float => unsafe { args[0].as_f64_unchecked().to_string() },
         Type::Int => args[0].as_int().to_string(),
-        Type::String => return args[0],
-        Type::Array => unimplemented!("Kan array nog niet omzetten naar een string"),
+        Type::String => return Ok(args[0]),
+        Type::Array => {
+            return Err(Error::ArgumentError(format!(
+                "kan geen string maken van een array"
+            )))
+        }
     };
-    Object::string(&t, gc)
+    Ok(Object::string(&t, gc))
 }
 
 /// Casts the given object to a bool object
-fn call_bool(args: &[Object]) -> Object {
-    // TODO: return error here
-    assert!(args.len() == 1);
-
-    match args[0].tag() {
-        Type::Null => Object::bool(false),
-        Type::Bool => args[0],
-        Type::Float => unsafe { Object::bool(args[0].as_f64_unchecked() > 0.00) },
-        Type::Int => Object::bool(args[0].as_int() > 0),
-        Type::String => unsafe { Object::bool(args[0].as_str_unchecked().len() > 0) },
-        Type::Array => unsafe { Object::bool(args[0].as_vec_unchecked().len() > 0) },
+fn call_bool(args: &[Object]) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "bool() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
     }
+
+    let result = match args[0].tag() {
+        Type::Null => false,
+        Type::Bool => return Ok(args[0]),
+        Type::Float => unsafe { args[0].as_f64_unchecked() > 0.00 },
+        Type::Int => args[0].as_int() > 0,
+        Type::String => unsafe { args[0].as_str_unchecked().len() > 0 },
+        Type::Array => unsafe { args[0].as_vec_unchecked().len() > 0 },
+    };
+    Ok(Object::bool(result))
 }
 
 /// Casts the given object to an object of type int
-fn call_int(args: &[Object]) -> Object {
-    // TODO: return error here
-    assert!(args.len() == 1);
+fn call_int(args: &[Object]) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "int() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
+    }
 
-    match args[0].tag() {
-        Type::Null => Object::int(0),
+    let result = match args[0].tag() {
+        Type::Null => 0,
         Type::Bool => {
             if args[0].as_bool() {
-                Object::int(1)
+                1
             } else {
-                Object::int(0)
+                0
             }
         }
-        Type::Float => unsafe { Object::int(args[0].as_f64_unchecked() as i64) },
-        Type::Int => args[0],
-        Type::String => unsafe { Object::int(args[0].as_str_unchecked().parse().unwrap()) },
-        Type::Array => panic!("Kan geen integer maken van een array."),
-    }
+        Type::Float => unsafe { args[0].as_f64_unchecked() as i64 },
+        Type::Int => return Ok(args[0]),
+        Type::String => unsafe {
+            match args[0].as_str_unchecked().trim().parse() {
+                Ok(val) => val,
+                Err(_) => {
+                    return Err(Error::ArgumentError(format!(
+                        "kan {:?} niet converteren naar een integer",
+                        args[0].as_str_unchecked()
+                    )))
+                }
+            }
+        },
+        Type::Array => {
+            return Err(Error::ArgumentError(format!(
+                "kan geen integer maken van een array"
+            )))
+        }
+    };
+
+    Ok(Object::int(result))
 }
 
 /// Casts the given object to an object of type float
-fn call_float(args: &[Object], gc: &mut GC) -> Object {
-    // TODO: return error here
-    assert!(args.len() == 1);
+fn call_float(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "float() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
+    }
 
-    match args[0].tag() {
-        Type::Null => Object::float(0.0, gc),
+    let result = match args[0].tag() {
+        Type::Null => 0.0,
         Type::Bool => {
             if args[0].as_bool() {
-                Object::float(1.0, gc)
+                1.0
             } else {
-                Object::float(0.0, gc)
+                0.0
             }
         }
-        Type::Float => args[0],
-        Type::Int => Object::float(args[0].as_int() as f64, gc),
-        Type::String => unsafe { Object::float(args[0].as_str_unchecked().parse().unwrap(), gc) },
-        Type::Array => panic!("Kan geen float maken van een array."),
-    }
+        Type::Float => return Ok(args[0]),
+        Type::Int => args[0].as_int() as f64,
+        Type::String => unsafe {
+            match args[0].as_str_unchecked().trim().parse() {
+                Ok(val) => val,
+                Err(_) => {
+                    return Err(Error::ArgumentError(format!(
+                        "kan {:?} niet converteren naar een float",
+                        args[0].as_str_unchecked()
+                    )))
+                }
+            }
+        },
+        Type::Array => {
+            return Err(Error::ArgumentError(format!(
+                "kan geen float maken van een array"
+            )))
+        }
+    };
+
+    Ok(Object::float(result, gc))
 }

@@ -12,6 +12,7 @@ pub enum Error {
     SyntaxError(RString),
     ReferenceError(RString),
     IndexError(RString),
+    ArgumentError(RString),
 }
 
 /// A macro for initialising a struct field (without dropping the original default value)

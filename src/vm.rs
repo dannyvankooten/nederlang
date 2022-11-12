@@ -286,7 +286,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 }
                 args.reverse();
                 let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
-                let result = builtins::call(builtin, &args, &mut gc);
+                let result = builtins::call(builtin, &args, &mut gc)?;
                 stack.push(result);
                 frame.ip += 3;
             }
