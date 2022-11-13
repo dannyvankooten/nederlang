@@ -73,6 +73,7 @@ const JUMP_PLACEHOLDER_BREAK: usize = 9999 + 1;
 impl From<u8> for OpCode {
     #[inline(always)]
     fn from(value: u8) -> Self {
+        // Safety: Since we convert OpCode to u8 (with repr(u8)) the reverse should also be safe
         unsafe { std::mem::transmute(value) }
     }
 }
@@ -96,6 +97,7 @@ impl OpCode {
             | OpCode::DivideLocalConst
             | OpCode::ModuloLocalConst => &[2, 2],
 
+            // OpCodes with 2 operands of 1 bytes each
             OpCode::CallBuiltin => &[1, 1],
 
             // OpCodes with 1 operand op 1 byte:
@@ -105,7 +107,7 @@ impl OpCode {
             | OpCode::SetGlobal
             | OpCode::GetLocal => &[1],
 
-            // Single opcode (no operands)
+            // OpCOde with no operands
             _ => &[],
         }
     }
@@ -162,17 +164,20 @@ impl Compiler {
 
         for (value, width) in std::iter::zip(operands, op.operands()) {
             match width {
-                // Opcodes with 2 operands (2^16 max value)
+                // operand with a 2-byte width (2^16 max value)
                 2 => {
                     bytecode.push(byte!(value, 0));
                     bytecode.push(byte!(value, 1));
                 }
-                // OpCodes with a single operand (2^8 max value)
+                // operand with a 1-byte-width
                 1 => {
                     bytecode.push(byte!(value, 0));
                 }
 
-                _ => panic!("Invalid operator: {op:?}"),
+                // this should never be possible
+                _ => panic!(
+                    "attempted to write 0-width operand with value {value:?} for operator {op:?}"
+                ),
             }
         }
 

@@ -20,8 +20,7 @@ pub fn nederlang_eval(code: &str) -> NlResponse {
     
     let program_result = run_str(code);
 
-    let captured = std::io::set_output_capture(None);
-    let captured = captured.unwrap();
+    let captured = std::io::set_output_capture(None).unwrap();
     let captured = Arc::try_unwrap(captured).unwrap();
     let captured = captured.into_inner().unwrap();
     let captured = String::from_utf8(captured).unwrap();
