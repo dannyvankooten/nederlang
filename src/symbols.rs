@@ -47,7 +47,7 @@ impl Context {
 
     /// Defines a new symbol in the current context its inner-most scope.
     pub fn define(&mut self, name: &str) -> Symbol {
-        let current_scope = self.symbols.iter_mut().last().unwrap();
+        let current_scope = self.symbols.last_mut().unwrap();
         current_scope.push(name.to_string());
         self.max_size += 1;
 
@@ -83,9 +83,9 @@ impl SymbolTable {
     }
 
     /// Returns a mutable reference to the current context
-    #[inline]
+    #[inline(always)]
     fn current_context(&mut self) -> &mut Context {
-        self.contexts.iter_mut().last().unwrap()
+        self.contexts.last_mut().unwrap()
     }
 
     /// Create a new context to define symbols in.

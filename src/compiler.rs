@@ -270,7 +270,7 @@ impl Compiler {
                 self.add_instruction(OpCode::Null, &[]);
                 let ip = self.add_instruction(OpCode::Jump, &[JUMP_PLACEHOLDER_BREAK]);
 
-                let ctx = match self.loop_contexts.iter_mut().last() {
+                let ctx = match self.loop_contexts.last_mut() {
                     Some(ctx) => ctx,
                     None => return Err(Error::SyntaxError(format!("foutief gebruik van 'stop'"))),
                 };

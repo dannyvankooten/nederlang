@@ -86,7 +86,7 @@ fn run(program: Program) -> Result<Object, Error> {
 
     // Push main frame onto the call stack
     frames.push(Frame::new(0, 0));
-    let mut frame = frames.iter_mut().last().unwrap();
+    let mut frame = frames.last_mut().unwrap();
 
     macro_rules! impl_binary_op_method {
         ($op:tt) => {{
@@ -278,7 +278,7 @@ fn run(program: Program) -> Result<Object, Error> {
 
                 frame.ip += 1;
                 frames.push(Frame::new(ip as usize, base_pointer));
-                frame = frames.iter_mut().last().unwrap();
+                frame = frames.last_mut().unwrap();
             }
             OpCode::CallBuiltin => {
                 let builtin = read_u8_operand!(instructions, frame.ip) as u8;
@@ -298,14 +298,14 @@ fn run(program: Program) -> Result<Object, Error> {
                 stack.truncate(frame.base_pointer);
                 stack.push(result);
                 frames.truncate(frames.len() - 1);
-                frame = frames.iter_mut().last().unwrap();
+                frame = frames.last_mut().unwrap();
                 frame.ip += 1;
             }
             OpCode::Return => {
                 stack.truncate(frame.base_pointer);
                 stack.push(Object::null());
                 frames.truncate(frames.len() - 1);
-                frame = frames.iter_mut().last().unwrap();
+                frame = frames.last_mut().unwrap();
                 frame.ip += 1;
             }
             OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
