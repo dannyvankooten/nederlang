@@ -205,10 +205,9 @@ fn test_referencing_undeclared_vars() {
         "{ { stel a = 1; } a }",
         "functie() { stel a = 1; }() a",
     ] {
-        assert_eq!(
-            run_str(program),
-            Err(Error::ReferenceError("a is not defined".to_string()))
-        )
+        // assert error is of type ReferenceError
+        let result = matches!(run_str(program).unwrap_err(), Error::ReferenceError(_));
+        assert!(result)
     }
 }
 

@@ -93,7 +93,7 @@ impl Object {
 
     /// Create a new function value
     pub fn function(ip: u32, num_locals: u16) -> Self {
-        let value = ((ip as i64) << 16) + num_locals as i64;
+        let value = ((ip as i64) << 16) | num_locals as i64;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
@@ -240,11 +240,12 @@ impl PartialEq for Object {
             return false;
         }
 
+        // TODO: Maybe delay type check (on other object) to here
+        //  (and then only for heap-allocated objects)
         match self.tag() {
-            Type::Null | Type::Bool | Type::Int => self.as_int() == other.as_int(),
+            Type::Null | Type::Bool | Type::Int | Type::Function => self.0 == other.0,
             Type::Float => unsafe { self.as_f64_unchecked() == other.as_f64_unchecked() },
             Type::String => unsafe { self.as_str_unchecked() == other.as_str_unchecked() },
-            Type::Function => self.0 == other.0,
             Type::Array => {
                 unimplemented!("Can not yet compare objects of type array")
             }
@@ -254,14 +255,18 @@ impl PartialEq for Object {
 
 impl PartialOrd for Object {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // we assert this in the various wrapper functions, eg Object::lt
         debug_assert_eq!(self.tag(), other.tag());
 
         match self.tag() {
-            Type::Null | Type::Bool | Type::Int => self.as_int().partial_cmp(&other.as_int()),
+            Type::Null | Type::Bool | Type::Int => self.0.partial_cmp(&other.0),
             Type::Float => unsafe { self.as_f64_unchecked().partial_cmp(&other.as_f64()) },
             Type::String => unsafe { self.as_str_unchecked().partial_cmp(other.as_str()) },
             Type::Array | Type::Function => {
-                unimplemented!("Can not yet order objects of type array")
+                unimplemented!(
+                    "kan objecten van type {} niet vergelijken of sorteren",
+                    self.tag()
+                )
             }
         }
     }
@@ -379,7 +384,7 @@ impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.tag() {
             Type::Null => (),
-            Type::Bool => f.write_str(if self.as_bool() { "true" } else { "false" })?,
+            Type::Bool => f.write_str(if self.as_bool() { "ja" } else { "nee" })?,
             Type::Float => unsafe { f.write_str(&self.as_f64_unchecked().to_string())? },
             Type::Int => f.write_str(&self.as_int().to_string())?,
             Type::String => unsafe { f.write_str(self.as_str_unchecked())? },
@@ -433,7 +438,7 @@ macro_rules! impl_arith {
         pub fn $func_name(self, rhs: Self, gc: &mut GC) -> Result<Object, Error> {
 
             if self.tag() != rhs.tag() {
-                return Err(Error::TypeError(format!("Can not {} objects of different type {} and {}", stringify!($op), self.tag(), rhs.tag())))
+                return Err(Error::TypeError(format!("kan geen {} doen op objecten van verschillende types ({} en {})", stringify!($op), self.tag(), rhs.tag())))
             }
 
             let result = match self.tag() {
@@ -443,7 +448,7 @@ macro_rules! impl_arith {
                 Type::Float => unsafe {
                     Object::float(self.as_f64_unchecked() $op rhs.as_f64_unchecked(), gc)
                 }
-                _ => return Err(Error::TypeError(format!("Can not {} on objects of type {}", stringify!($op), self.tag()))),
+                _ => return Err(Error::TypeError(format!("kan geen {} doen op objecten van type {}", stringify!($op), self.tag()))),
             };
 
             Ok(result)
@@ -457,7 +462,7 @@ macro_rules! impl_logical {
         pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             let result = match (self.tag(), rhs.tag()) {
                 (Type::Bool, Type::Bool) => Object::bool(self.as_bool() $op rhs.as_bool()),
-                _ => return Err(Error::TypeError(format!("Can not {} objects of type {} and {}", stringify!($op), self.tag(), rhs.tag())))
+                _ => return Err(Error::TypeError(format!("kan geen {} doen op objecten van type {} en {}", stringify!($op), self.tag(), rhs.tag())))
             };
             Ok(result)
         }
@@ -469,7 +474,7 @@ macro_rules! impl_cmp {
         #[inline]
         pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             if self.tag() != rhs.tag() {
-                return Err(Error::TypeError(format!("Can not compare objects of type {} and {}", self.tag(), rhs.tag())));
+                return Err(Error::TypeError(format!("kan objecten met type {} en type {} niet vergelijken", self.tag(), rhs.tag())));
             }
 
             // Delegate actual comparison to PartialOrd/PartialEq implementation

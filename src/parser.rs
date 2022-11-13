@@ -87,8 +87,8 @@ impl<'a> Parser<'a> {
         match &left {
             Expr::Function(..) => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {left} can not be used in infix expression."
-                )))
+                "expressies van het type {left} kunnen niet worden gebruikt in een infix-expressie"
+            )))
             }
             _ => (),
         }
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Index(_) => (),
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Can not assign to expression of type {left}"
+                    "kan geen waarde toewijzen aan expressies van het type {left}"
                 )))
             }
         }
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.current_token != t {
             return Err(ParseError::SyntaxError(format!(
-                "Unexpected token: expected {t:?}, got {:?}",
+                "onverwachte token. verwacchte {t:?}, maar kreeg {:?}",
                 self.current_token
             )));
         }
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Function(_, _, _) => {}
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {func} is not callable."
+                    "expressies van het type {func} zijn niet aanroepbaar"
                 )))
             }
         }
@@ -288,7 +288,7 @@ impl<'a> Parser<'a> {
             Expr::Identifier(_) | Expr::Array(_) | Expr::String(_) => (),
             _ => {
                 return Err(ParseError::TypeError(format!(
-                    "Expression of type {left} is not indexable."
+                    "kan niet indexeren in expressies van het type {left}"
                 )))
             }
         }
@@ -322,7 +322,7 @@ impl<'a> Parser<'a> {
             Token::OpenBracket => self.parse_array_expr()?,
             _ => {
                 return Err(ParseError::SyntaxError(format!(
-                    "Unexpected token. Expected expression, got {:?}",
+                    "onverwachte token. verwachtte een expressie, maar kreeg {:?}",
                     self.current_token
                 )))
             }
@@ -361,7 +361,7 @@ impl<'a> Parser<'a> {
         let identifier = match self.current_token {
             Token::Identifier(name) => Ok(name.to_owned()),
             _ => Err(ParseError::SyntaxError(format!(
-                "Expected identifier, got {:?}",
+                "onverwachte token. verwachtte een naam, kreeg een {:?}",
                 self.current_token
             ))),
         }?;

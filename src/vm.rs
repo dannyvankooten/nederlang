@@ -18,8 +18,10 @@ macro_rules! read_u8_operand {
 
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
-        read_u8_operand!($instructions, $ip)
-            + unsafe { ((*$instructions.get_unchecked($ip + 2) as usize) << 8) }
+        unsafe {
+            (*$instructions.get_unchecked($ip + 1) as u32
+                | (*$instructions.get_unchecked($ip + 2) as u32) << 8) as usize
+        }
     };
 }
 
@@ -198,7 +200,7 @@ fn run(program: Program) -> Result<Object, Error> {
                 let condition = pop(&mut stack);
                 let evaluation = match condition.tag() {
                     Type::Bool => Ok(condition.as_bool()),
-                    _ => Err(Error::TypeError(format!("Kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
+                    _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
                 }?;
                 if evaluation == true {
                     frame.ip += 3;
@@ -249,7 +251,7 @@ fn run(program: Program) -> Result<Object, Error> {
                     Type::Int => Object::int(-left.as_int()),
                     _ => {
                         return Err(Error::TypeError(format!(
-                            "Can not negate object of type {}",
+                            "kan objecten met type {} niet omdraaien",
                             left.tag()
                         )))
                     }

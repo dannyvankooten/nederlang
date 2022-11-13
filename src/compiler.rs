@@ -16,7 +16,7 @@ macro_rules! byte {
 
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
-        ($instructions[$ip + 1] as usize) + (($instructions[$ip + 2] as usize) << 8)
+        ($instructions[$ip + 1] as usize) | (($instructions[$ip + 2] as usize) << 8)
     };
 }
 
@@ -271,7 +271,7 @@ impl Compiler {
 
                 let ctx = match self.loop_contexts.iter_mut().last() {
                     Some(ctx) => ctx,
-                    None => return Err(Error::SyntaxError(format!("Foutief gebruik van 'stop'."))),
+                    None => return Err(Error::SyntaxError(format!("foutief gebruik van 'stop'"))),
                 };
                 ctx.break_instructions.push(ip);
             }
@@ -284,7 +284,7 @@ impl Compiler {
                     }
                     None => {
                         return Err(Error::SyntaxError(format!(
-                            "Foutief gebruik van 'volgende'."
+                            "foutief gebruik van 'volgende'"
                         )))
                     }
                 }
@@ -339,15 +339,20 @@ impl Compiler {
                     (Operator::Divide, Scope::Local) => OpCode::DivideLocalConst,
                     (Operator::Modulo, Scope::Local) => OpCode::ModuloLocalConst,
                     _ => {
+                        // This is just for other part of compiler to signal it should emit a normal instruction sequence
                         return Err(Error::ReferenceError(format!(
                         "Optimized variant of this operator & scope type is not yet implemented."
-                    )))
+                    )));
                     }
                 };
 
                 self.add_instruction(op, &[symbol.index, idx_constant]);
             }
-            None => return Err(Error::ReferenceError(format!("{varname} is not defined"))),
+            None => {
+                return Err(Error::ReferenceError(format!(
+                    "{varname} is niet gedefinieerd"
+                )))
+            }
         }
 
         Ok(())
@@ -386,7 +391,11 @@ impl Compiler {
                             self.add_instruction(OpCode::GetLocal, &[symbol.index]);
                         }
                     }
-                    None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
+                    None => {
+                        return Err(Error::ReferenceError(format!(
+                            "{name} is niet gedefinieerd"
+                        )))
+                    }
                 }
             }
             Expr::Prefix(expr) => {
@@ -402,7 +411,7 @@ impl Compiler {
 
                     _ => {
                         return Err(Error::TypeError(format!(
-                            "Invalid operator for prefix expression: {:?}",
+                            "foutieve operator voor prefix expressie: {:?}",
                             expr.operator
                         )))
                     }
@@ -413,7 +422,7 @@ impl Compiler {
                     Expr::Identifier(name) => name,
                     _ => {
                         return Err(Error::TypeError(format!(
-                            "Can not assign to expression of type {:?}",
+                            "kan geen waarde toewijzen aan expressies van type {:?}",
                             expr.left
                         )))
                     }
@@ -433,7 +442,11 @@ impl Compiler {
                             self.add_instruction(OpCode::GetLocal, &[symbol.index]);
                         }
                     }
-                    None => return Err(Error::ReferenceError(format!("{name} is not defined"))),
+                    None => {
+                        return Err(Error::ReferenceError(format!(
+                            "{name} is niet gedefinieerd"
+                        )))
+                    }
                 }
             }
             Expr::Infix(expr) => {
@@ -590,7 +603,7 @@ impl Compiler {
                 self.add_instruction(OpCode::Call, &[expr.arguments.len()]);
             }
 
-            _ => unimplemented!("Can not yet compile expressions of type {expr:?}"),
+            _ => unimplemented!("kan expressies van type {expr:?} nog niet compileren"),
         }
 
         Ok(())
