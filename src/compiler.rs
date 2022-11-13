@@ -153,6 +153,7 @@ impl Compiler {
         }
     }
 
+    /// Emit the given OpCode with the given operands to the bytecode vector
     fn add_instruction(&mut self, op: OpCode, operands: &[usize]) -> usize {
         let bytecode = &mut self.instructions;
         let pos = bytecode.len();

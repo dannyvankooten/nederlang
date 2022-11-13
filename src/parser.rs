@@ -227,6 +227,7 @@ impl<'a> Parser<'a> {
         Ok(Expr::Function(name.to_owned(), parameters, body))
     }
 
+    #[inline]
     fn parse_ident(&mut self, name: &str) -> Expr {
         let expr = Expr::Identifier(name.to_owned());
         self.advance();

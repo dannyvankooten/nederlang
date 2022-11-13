@@ -133,6 +133,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Moves to the next character.
+    #[inline]
     fn bump(&mut self) -> Option<char> {
         let c = self.chars.next()?;
         self.pos += c.len_utf8();
@@ -302,6 +303,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 /// True if `c` is considered a whitespace according to Rust language definition.
 /// See [Rust language reference](https://doc.rust-lang.org/reference/whitespace.html)
 /// for definitions of these classes.
+#[inline]
 pub fn is_whitespace(c: char) -> bool {
     // This is Pattern_White_Space.
     //

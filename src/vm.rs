@@ -19,8 +19,8 @@ macro_rules! read_u8_operand {
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
         unsafe {
-            (*$instructions.get_unchecked($ip + 1) as u32
-                | (*$instructions.get_unchecked($ip + 2) as u32) << 8) as usize
+            (*$instructions.get_unchecked($ip + 1) as u16
+                | (*$instructions.get_unchecked($ip + 2) as u16) << 8) as usize
         }
     };
 }
@@ -37,7 +37,7 @@ struct Frame {
 /// Vec::pop, but without checking if it's empty first.
 /// This yields a ~25% performance improvement.
 /// As an aside, removing any of the other bound check related to working with the stack does not seen to yield significant performance improvements.
-#[inline]
+#[inline(always)]
 fn pop(slice: &mut Vec<Object>) -> Object {
     debug_assert!(!slice.is_empty());
 
@@ -50,7 +50,7 @@ fn pop(slice: &mut Vec<Object>) -> Object {
 }
 
 impl Frame {
-    #[inline]
+    #[inline(always)]
     fn new(ip: usize, base_pointer: usize) -> Self {
         Frame { ip, base_pointer }
     }

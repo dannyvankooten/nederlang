@@ -66,16 +66,19 @@ unsafe impl Send for Object {}
 
 impl Object {
     /// Creates a new object from the value (or address) given with the given type mask applied
+    #[inline(always)]
     fn with_type(raw: *mut u8, t: Type) -> Self {
         Self((raw as usize | t as usize) as _)
     }
 
     /// Create a new null value
+    #[inline(always)]
     pub fn null() -> Self {
         Self::with_type(0 as _, Type::Null)
     }
 
     /// Create a new boolean value
+    #[inline(always)]
     pub fn bool(value: bool) -> Self {
         match value {
             true => Self::with_type((1 << VALUE_SHIFT_BITS) as _, Type::Bool),
@@ -84,6 +87,7 @@ impl Object {
     }
 
     /// Create a new integer value
+    #[inline(always)]
     pub fn int(value: i64) -> Self {
         // assert there is no data loss because of the shift
         debug_assert_eq!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS), value);
@@ -92,27 +96,32 @@ impl Object {
     }
 
     /// Create a new function value
+    #[inline]
     pub fn function(ip: u32, num_locals: u16) -> Self {
         let value = ((ip as i64) << 16) | num_locals as i64;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
     /// Create a new (garbage-collected) String value
+    #[inline]
     pub fn string(value: &str, gc: &mut GC) -> Self {
         String::from_str(value, gc)
     }
 
     /// Create a new (garbage-collected) Float value
+    #[inline]
     pub fn float(value: f64, gc: &mut GC) -> Self {
         Float::from_f64(value, gc)
     }
 
     /// Create a new (garbage-collected) Array value
+    #[inline]
     pub fn array(value: &[Object], gc: &mut GC) -> Self {
         Array::from_slice(value, gc)
     }
 
     /// Returns the type of this object pointer
+    #[inline(always)]
     pub fn tag(self) -> Type {
         // Safety: self.0 with TAG_MASK applied will always yield a correct Type
         unsafe { std::mem::transmute((self.0 as usize & TAG_MASK) as u8) }
@@ -120,18 +129,21 @@ impl Object {
 
     /// Returns the boolean value of this object pointer
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline(always)]
     pub fn as_bool(self) -> bool {
         ((self.0 as u8 >> VALUE_SHIFT_BITS) as u8) != 0
     }
 
     /// Returns the integer value of this object pointer
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline(always)]
     pub fn as_int(self) -> i64 {
         self.0 as i64 >> VALUE_SHIFT_BITS
     }
 
     /// Returns the function value of this object
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline(always)]
     pub fn as_function(self) -> [u32; 2] {
         let value = self.0 as i64 >> VALUE_SHIFT_BITS;
 
@@ -147,6 +159,7 @@ impl Object {
 
     /// Returns the f64 value of this object pointer
     /// Panics if object does not point to a Float
+    #[inline]
     pub fn as_f64(self) -> f64 {
         assert_eq!(self.tag(), Type::Float);
         unsafe { self.as_f64_unchecked() }
@@ -154,12 +167,14 @@ impl Object {
 
     /// Returns the f64 value of this object pointer
     /// The caller should ensure this pointer points to an actual Float type
+    #[inline]
     pub unsafe fn as_f64_unchecked(self) -> f64 {
         Float::read(&self)
     }
 
     /// Returns the &str value of this object pointer
     /// Panics if object does not point to a String
+    #[inline]
     pub fn as_str(&self) -> &str {
         assert_eq!(self.tag(), Type::String);
         unsafe { self.as_str_unchecked() }
@@ -167,12 +182,14 @@ impl Object {
 
     /// Returns the &str value of this object pointer
     /// The caller should ensure this pointer points to an actual String type
+    #[inline]
     pub unsafe fn as_str_unchecked(&self) -> &str {
         String::read(&self)
     }
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
     /// Panics if object does not point to an Array
+    #[inline]
     pub fn as_vec(&self) -> &Vec<Object> {
         assert_eq!(self.tag(), Type::Array);
         unsafe { self.as_vec_unchecked() }
@@ -180,12 +197,14 @@ impl Object {
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
     /// The caller should ensure this pointer actually points to an Array
+    #[inline]
     pub unsafe fn as_vec_unchecked(&self) -> &Vec<Object> {
         Array::read(&self)
     }
 
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
     /// Panics if object does not point to an Array
+    #[inline]
     pub fn as_vec_mut(&self) -> &mut Vec<Object> {
         assert_eq!(self.tag(), Type::Array);
         unsafe { self.as_vec_unchecked_mut() }
@@ -193,30 +212,35 @@ impl Object {
 
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
     /// The caller should ensure this pointer actually points to an Array
+    #[inline]
     pub unsafe fn as_vec_unchecked_mut(&self) -> &mut Vec<Object> {
         &mut self.get_mut::<Array>().value
     }
 
     /// Returns the pointer stored in this object
     /// This can return a non-valid address if called on a non-heap allocated object value.
+    #[inline]
     pub(crate) fn as_ptr(self) -> *mut u8 {
         (self.0 as usize & PTR_MASK) as _
     }
 
     /// Get a reference to the value this object points to
     /// It is up to the caller to ensure the object is actually heap-allocated and points to a valid memory location.
+    #[inline]
     unsafe fn get<'a, T>(self) -> &'a T {
         &*(self.as_ptr() as *const T)
     }
 
     /// Get a mutable reference to the value this object points to
     /// It is up to the caller to ensure the object is actually heap-allocated and points to a valid memory location.
+    #[inline]
     unsafe fn get_mut<'a, T>(self) -> &'a mut T {
         &mut *(self.as_ptr() as *mut T)
     }
 
     /// Returns true if this pointer does not contain an immediate value
     /// But points to a heap allocated type (like Float, String or Array)
+    #[inline]
     pub fn is_heap_allocated(self) -> bool {
         self.0 as usize & TAG_MASK >= Type::Float as usize
     }
@@ -235,6 +259,7 @@ impl Object {
 }
 
 impl PartialEq for Object {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         if self.tag() != other.tag() {
             return false;
@@ -254,6 +279,7 @@ impl PartialEq for Object {
 }
 
 impl PartialOrd for Object {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // we assert this in the various wrapper functions, eg Object::lt
         debug_assert_eq!(self.tag(), other.tag());
@@ -278,6 +304,7 @@ pub(crate) struct Header {
 }
 
 impl Header {
+    #[inline]
     pub(crate) unsafe fn read(obj: &Object) -> &mut Header {
         obj.get_mut::<Self>()
     }
@@ -290,10 +317,12 @@ struct Float {
 }
 
 impl Float {
+    #[inline]
     unsafe fn read(obj: &Object) -> f64 {
         obj.get::<Self>().value
     }
 
+    #[inline]
     unsafe fn destroy(obj: Object) {
         drop_in_place(obj.as_ptr() as *mut Self);
         dealloc(obj.as_ptr(), Layout::new::<Self>());
@@ -319,10 +348,12 @@ struct String {
 }
 
 impl String {
+    #[inline]
     unsafe fn read(ptr: &Object) -> &str {
         ptr.get::<Self>().value.as_str()
     }
 
+    #[inline]
     unsafe fn destroy(ptr: Object) {
         drop_in_place(ptr.as_ptr() as *mut Self);
         dealloc(ptr.as_ptr(), Layout::new::<Self>());
@@ -352,11 +383,13 @@ struct Array {
 }
 
 impl Array {
+    #[inline]
     unsafe fn read(ptr: &Object) -> &Vec<Object> {
         ptr.get::<Self>().value.as_ref()
     }
 
     /// Drops and deallocate this NlArray struct and its value
+    #[inline]
     unsafe fn destroy(ptr: Object) {
         drop_in_place(ptr.as_ptr() as *mut Self);
         dealloc(ptr.as_ptr(), Layout::new::<Self>());
@@ -434,7 +467,7 @@ fn allocate(layout: Layout) -> *mut u8 {
 
 macro_rules! impl_arith {
     ($func_name:ident, $op:tt) => {
-        #[inline]
+        #[inline(always)]
         pub fn $func_name(self, rhs: Self, gc: &mut GC) -> Result<Object, Error> {
 
             if self.tag() != rhs.tag() {
@@ -458,7 +491,7 @@ macro_rules! impl_arith {
 
 macro_rules! impl_logical {
     ($func_name:ident, $op:tt) => {
-        #[inline]
+        #[inline(always)]
         pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             let result = match (self.tag(), rhs.tag()) {
                 (Type::Bool, Type::Bool) => Object::bool(self.as_bool() $op rhs.as_bool()),
@@ -471,7 +504,7 @@ macro_rules! impl_logical {
 
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
-        #[inline]
+        #[inline(always)]
         pub fn $func_name(self, rhs: Self, _gc: &mut GC) -> Result<Object, Error> {
             if self.tag() != rhs.tag() {
                 return Err(Error::TypeError(format!("kan objecten met type {} en type {} niet vergelijken", self.tag(), rhs.tag())));

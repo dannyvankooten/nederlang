@@ -20,7 +20,6 @@ impl GC {
     }
 
     /// Removes the given object from this garbage collector so it is no longer managed by it
-    #[inline]
     pub fn untrace(&mut self, o: Object) {
         if let Some(pos) = self
             .objects
