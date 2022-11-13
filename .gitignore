@@ -5,3 +5,4 @@ flamegraph.svg
 NOTES.md
 examples/.*
 vgcore.*
+fuzz

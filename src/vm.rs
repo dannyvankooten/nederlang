@@ -239,7 +239,12 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::Or => impl_binary_op_method!(or),
             OpCode::Not => {
                 let left = pop(&mut stack);
-                assert_eq!(left.tag(), Type::Bool);
+                if left.tag() != Type::Bool {
+                    return Err(Error::TypeError(format!(
+                        "kan ! (niet) niet toepassen op objecten van type {}",
+                        left.tag()
+                    )));
+                }
                 let result = Object::bool(!left.as_bool());
                 stack.push(result);
                 frame.ip += 1;

@@ -221,7 +221,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             // String values
             '"' => {
                 self.skip_while(|c| c != '"');
-                self.bump();
+                self.bump()?;
                 String(self.read_str(start + 1, self.offset() - 1))
             }
 
