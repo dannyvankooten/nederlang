@@ -186,14 +186,34 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn parse_bool_expression(&mut self, value: bool) -> Expr {
+        // consume bool token
         self.advance();
+
         ExprBool::new(value)
     }
 
     #[inline]
     fn parse_string_expression(&mut self, value: &str) -> Expr {
+        // consume string token
         self.advance();
-        ExprString::new(value.to_owned())
+
+        // read the string, skipping any escape sequences
+        let mut b = value.chars().skip(1);
+        let mut s = String::with_capacity(value.len());
+        for ch in value.chars() {
+            let next = b.next();
+            if ch == '\\' && (next == Some('"') || next == Some('\\')) {
+                println!("Skipping \\");
+                continue;
+            }
+
+            s.push(ch);
+        }
+
+        // Since program came from user input
+        // We have to replace escape sequences with their actual (single-char) value
+        s = s.replace("\\n", "\n").replace("\\t", "\t");
+        ExprString::new(s)
     }
 
     fn parse_function_expr(&mut self) -> Result<Expr, ParseError> {

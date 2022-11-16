@@ -475,3 +475,21 @@ fn test_array() {
         result.free_recursive();
     }
 }
+
+#[test]
+fn test_string_with_quotes() {
+    assert_eq!(
+        run_str(r#""Ik heet \"Danny\"""#).unwrap().as_str(),
+        r#"Ik heet "Danny""#
+    );
+}
+
+#[test]
+fn test_string_with_escape_chars() {
+    assert_eq!(run_str(r#""5 \\ 5""#).unwrap().as_str(), r#"5 \ 5"#);
+}
+
+#[test]
+fn test_string_with_newline() {
+    assert_eq!(run_str(r#""\n""#).unwrap().as_str(), "\n");
+}

@@ -105,6 +105,7 @@ pub(crate) enum Token<'a> {
 /// and position can be shifted forward via `bump` method.
 pub(crate) struct Tokenizer<'a> {
     pos: usize,
+    /// The complete input string
     input: &'a str,
     /// Iterator over chars. Slightly faster than a &str.
     chars: Chars<'a>,
@@ -154,11 +155,12 @@ impl<'a> Tokenizer<'a> {
 
     /// Eats symbols while predicate returns true or until the end of file is reached.
     #[inline]
-    fn skip_while(&mut self, mut predicate: impl FnMut(char) -> bool) {
+    fn skip_while(&mut self, mut predicate: impl FnMut(char, bool) -> bool) {
         // It was tried making optimized version of this for eg. line comments, but
         // LLVM can inline all of this and compile it down to fast iteration over bytes.
-        while !self.is_eof() && predicate(self.peek().unwrap()) {
-            self.bump();
+        let mut escaped = false;
+        while !self.is_eof() && predicate(self.peek().unwrap(), escaped) {
+            escaped = self.bump() == Some('\\');
         }
     }
 }
@@ -190,7 +192,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             // Identifiers
             c if c.is_alphabetic() || c == '_' => {
                 // first char must be alphabetic, but consecutive chars can have integers
-                self.skip_while(|c| c.is_alphanumeric() || c == '_');
+                self.skip_while(|c, _| c.is_alphanumeric() || c == '_');
                 let ident = self.read_str(start, self.offset());
                 ident.into()
             }
@@ -198,7 +200,7 @@ impl<'a> Iterator for Tokenizer<'a> {
             // Integers & Floats
             '0'..='9' => {
                 let mut decimal = false;
-                self.skip_while(|c| {
+                self.skip_while(|c, _| {
                     if c.is_ascii_digit() {
                         return true;
                     }
@@ -220,12 +222,16 @@ impl<'a> Iterator for Tokenizer<'a> {
 
             // String values
             '"' => {
-                self.skip_while(|c| c != '"');
+                self.skip_while(|c, esc| c != '"' || esc);
+
+                // skip closing "
                 self.bump()?;
+
+                // this reads the string including escape characters
                 String(self.read_str(start + 1, self.offset() - 1))
             }
 
-            // Whitespace (skipped, because insignificant)
+            // Whitespace (skipped, because insignificant in Nederlang)
             c if is_whitespace(c) => return self.next(),
 
             // Multi-char tokens:
@@ -261,7 +267,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                 // Two consecutive slashes indicate the start of a single-line comment
                 // So skip forward until end of line.
                 if self.peek() == Some('/') {
-                    self.skip_while(|c| c != '\n');
+                    self.skip_while(|c, _| c != '\n');
                     return self.next();
                 } else {
                     Slash
