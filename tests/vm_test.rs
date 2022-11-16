@@ -454,3 +454,24 @@ fn test_cast_float() {
         result.free();
     }
 }
+
+#[test]
+fn test_array() {
+    for (t, e) in [
+        ("[]", vec![]),
+        ("[1]", vec![Object::int(1)]),
+        ("[1, 2]", vec![Object::int(1), Object::int(2)]),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        let vec = result.as_vec();
+        assert_eq!(vec.len(), e.len());
+        for (e, v) in e.iter().zip(vec) {
+            assert_eq!(e, v);
+        }
+
+        result.free_recursive();
+    }
+}

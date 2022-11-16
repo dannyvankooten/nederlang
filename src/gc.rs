@@ -1,4 +1,4 @@
-use crate::object::{Header, Object};
+use crate::object::{Header, Object, Type};
 
 pub struct GC {
     /// Vector of all currently alive heap-allocated objects in the universe
@@ -19,7 +19,7 @@ impl GC {
         self.objects.push(o);
     }
 
-    /// Removes the given object from this garbage collector so it is no longer managed by it
+    /// Removes the given object (and everything it refers) from this garbage collector so it is no longer managed by it
     pub fn untrace(&mut self, o: Object) {
         if let Some(pos) = self
             .objects
@@ -27,6 +27,15 @@ impl GC {
             .position(|a| std::ptr::eq(a.as_ptr(), o.as_ptr()))
         {
             self.objects.swap_remove(pos);
+
+            if o.tag() == Type::Array {
+                // Safety: We've already checked the type
+                unsafe {
+                    for val in o.as_vec_unchecked() {
+                        self.untrace(*val);
+                    }
+                }
+            }
         }
     }
 
@@ -99,4 +108,10 @@ fn mark(o: &Object) {
 
     let mut header = unsafe { Header::read(o) };
     header.marked = true;
+
+    if o.tag() == Type::Array {
+        for v in o.as_vec() {
+            mark(v);
+        }
+    }
 }

@@ -324,6 +324,18 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
+            OpCode::Array => {
+                let length = read_u16_operand!(instructions, frame.ip);
+                let mut vec = Vec::with_capacity(length);
+                for _ in 0..length {
+                    vec.push(pop(&mut stack));
+                }
+                vec.reverse();
+                // TODO: Re-use vector allocation here
+                let obj = Object::array(&vec, &mut gc);
+                stack.push(obj);
+                frame.ip += 3;
+            }
             OpCode::Halt => {
                 gc.untrace(final_result);
                 return Ok(final_result);

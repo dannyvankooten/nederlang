@@ -64,6 +64,7 @@ pub(crate) enum OpCode {
     MultiplyLocalConst,
     DivideLocalConst,
     ModuloLocalConst,
+    Array,
     Halt,
 }
 
@@ -82,7 +83,7 @@ impl OpCode {
     fn operands(&self) -> &[usize] {
         match self {
             // OpCodes with 1 operand of 2 bytes
-            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse => &[2],
+            OpCode::Const | OpCode::Jump | OpCode::JumpIfFalse | OpCode::Array => &[2],
 
             // OpCodes with 2 operands of 2 bytes
             OpCode::GtLocalConst
@@ -604,6 +605,13 @@ impl Compiler {
                 self.add_instruction(OpCode::Call, &[expr.arguments.len()]);
             }
 
+            Expr::Array(expr) => {
+                for v in &expr.values {
+                    self.compile_expression(v)?;
+                }
+                self.add_instruction(OpCode::Array, &[expr.values.len()]);
+            }
+
             _ => unimplemented!("kan expressies van type {expr:?} nog niet compileren"),
         }
 
@@ -700,6 +708,7 @@ impl Display for OpCode {
             OpCode::MultiplyLocalConst => f.write_str("MultiplyLocalConst"),
             OpCode::DivideLocalConst => f.write_str("DivideLocalConst"),
             OpCode::ModuloLocalConst => f.write_str("ModuloLocalConst"),
+            OpCode::Array => f.write_str("Array"),
             OpCode::Halt => f.write_str("Halt"),
         }
     }

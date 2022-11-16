@@ -256,6 +256,21 @@ impl Object {
             }
         }
     }
+
+    /// Frees the memory address this pointer points to
+    /// Plus all addresses inside the array (if it is an array)
+    pub fn free_recursive(self) {
+        if self.tag() == Type::Array {
+            // Safety: We've asserted the type
+            unsafe {
+                for o in self.as_vec_unchecked() {
+                    o.free();
+                }
+            }
+        }
+
+        self.free();
+    }
 }
 
 impl PartialEq for Object {
