@@ -65,6 +65,8 @@ pub(crate) enum OpCode {
     DivideLocalConst,
     ModuloLocalConst,
     Array,
+    IndexGet,
+    IndexSet,
     Halt,
 }
 
@@ -108,8 +110,31 @@ impl OpCode {
             | OpCode::SetGlobal
             | OpCode::GetLocal => &[1],
 
-            // OpCOde with no operands
-            _ => &[],
+            // OpCodes with no operands
+            OpCode::Pop
+            | OpCode::True
+            | OpCode::False
+            | OpCode::Add
+            | OpCode::Subtract
+            | OpCode::Divide
+            | OpCode::Multiply
+            | OpCode::Gt
+            | OpCode::Gte
+            | OpCode::Lt
+            | OpCode::Lte
+            | OpCode::Eq
+            | OpCode::Neq
+            | OpCode::And
+            | OpCode::Or
+            | OpCode::Not
+            | OpCode::Modulo
+            | OpCode::Negate
+            | OpCode::Null
+            | OpCode::Return
+            | OpCode::ReturnValue
+            | OpCode::IndexGet
+            | OpCode::IndexSet
+            | OpCode::Halt => &[],
         }
     }
 }
@@ -422,6 +447,13 @@ impl Compiler {
             Expr::Assign(expr) => {
                 let name = match &*expr.left {
                     Expr::Identifier(name) => name,
+                    Expr::Index(index_expr) => {
+                        self.compile_expression(&index_expr.left)?;
+                        self.compile_expression(&index_expr.index)?;
+                        self.compile_expression(&expr.right)?;
+                        self.add_instruction(OpCode::IndexSet, &[]);
+                        return Ok(());
+                    }
                     _ => {
                         return Err(Error::TypeError(format!(
                             "kan geen waarde toewijzen aan expressies van type {:?}",
@@ -612,6 +644,12 @@ impl Compiler {
                 self.add_instruction(OpCode::Array, &[expr.values.len()]);
             }
 
+            Expr::Index(expr) => {
+                self.compile_expression(&expr.left)?;
+                self.compile_expression(&expr.index)?;
+                self.add_instruction(OpCode::IndexGet, &[]);
+            }
+
             _ => unimplemented!("kan expressies van type {expr:?} nog niet compileren"),
         }
 
@@ -709,6 +747,8 @@ impl Display for OpCode {
             OpCode::DivideLocalConst => f.write_str("DivideLocalConst"),
             OpCode::ModuloLocalConst => f.write_str("ModuloLocalConst"),
             OpCode::Array => f.write_str("Array"),
+            OpCode::IndexGet => f.write_str("IndexGet"),
+            OpCode::IndexSet => f.write_str("IndexSet"),
             OpCode::Halt => f.write_str("Halt"),
         }
     }

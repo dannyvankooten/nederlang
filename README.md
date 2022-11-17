@@ -233,6 +233,31 @@ float("3.1415")     // 3.1415
 string(1)           // "1"
 ```
 
+### Lijsten
+
+Lijsten creer je met `[]`, bijvoorbeeld:
+
+```
+stel a = [1, 2, 3]
+```
+
+Om het zoveelste element uit een lijst op te vragen gebruik je `lijst[index]`, waar `[0]` verwijst naar het eerste element uit de lijst.
+
+```
+a[0]                // => 1
+```
+
+Om een nieuwe waarde aan het zoveelste element in een lijst toe te schrijven gebruik je `lijst[index] = waarde`:
+
+```
+a[0] = 100
+```
+
+Je kunt een negatieve index gebruiken om vanaf het laatste element te beginnen met tellen.
+
+```
+a[-1]               // => 3
+```
 
 
 ## Licentie

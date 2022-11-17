@@ -493,3 +493,78 @@ fn test_string_with_escape_chars() {
 fn test_string_with_newline() {
     assert_eq!(run_str(r#""\n""#).unwrap().as_str(), "\n");
 }
+
+#[test]
+fn test_array_indexing() {
+    for (t, e) in [
+        ("[1][0]", Object::int(1)),
+        ("[1][-1]", Object::int(1)),
+        ("[1, 2, 3][1+1-1]", Object::int(2)),
+        ("[1, 2, 3][2]", Object::int(3)),
+        ("[1, 2, 3][-1]", Object::int(3)),
+        ("[1, 2, 3][-2]", Object::int(2)),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result, e);
+    }
+}
+
+#[test]
+fn test_array_indexing_out_of_bounds() {
+    for t in ["[][1]", "[][-1]", "[1, 2, 3][3]"] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::IndexError(_)));
+    }
+}
+
+#[test]
+fn test_array_indexing_invalid_index() {
+    for t in ["[1][1.0]", "[1][ja]", "[1][\"foobar\"]"] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::TypeError(_)));
+    }
+}
+
+#[test]
+fn test_indexing_on_non_array() {
+    for t in ["1[0]", "\"foo\"[0]"] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::TypeError(_)));
+    }
+}
+
+#[test]
+fn test_array_index_assignment() {
+    for (t, e) in [
+        ("[1][0] = 2", Object::int(2)),
+        ("stel a = [1]; a[0] = 2; a[0]", Object::int(2)),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result, e);
+    }
+}
+
+#[test]
+fn test_array_index_assignment_out_of_bounds() {
+    for t in ["[][1] = 1", "[][-1] = 1", "[1, 2, 3][3] = 1"] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::IndexError(_)));
+    }
+}
+
+#[test]
+fn test_array_index_assignment_invalid_index() {
+    for t in ["[1][1.0] = 1", "[1][ja] = 1", "[1][\"foobar\"] = 1"] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::TypeError(_)));
+    }
+}

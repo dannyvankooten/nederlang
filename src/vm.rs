@@ -336,6 +336,69 @@ fn run(program: Program) -> Result<Object, Error> {
                 stack.push(obj);
                 frame.ip += 3;
             }
+            OpCode::IndexGet => {
+                let index = pop(&mut stack);
+                if index.tag() != Type::Int {
+                    return Err(Error::TypeError(format!(
+                        "lijst index moet een integer zijn, geen {}",
+                        index.tag()
+                    )));
+                }
+
+                let array = pop(&mut stack);
+                if array.tag() != Type::Array {
+                    return Err(Error::TypeError(format!(
+                        "kan niet indexeren in objecten van type {}",
+                        array.tag()
+                    )));
+                }
+
+                let mut index = index.as_int();
+                let array = array.as_vec();
+                if index < 0 {
+                    index = array.len() as i64 + index;
+                }
+                let index = index as usize;
+                if index >= array.len() {
+                    return Err(Error::IndexError(format!(
+                        "lijst index valt buiten de lijst"
+                    )));
+                }
+
+                stack.push(array[index]);
+                frame.ip += 1;
+            }
+            OpCode::IndexSet => {
+                let value = pop(&mut stack);
+                let index = pop(&mut stack);
+                if index.tag() != Type::Int {
+                    return Err(Error::TypeError(format!(
+                        "lijst index moet een integer zijn, geen {}",
+                        index.tag()
+                    )));
+                }
+                let array = pop(&mut stack);
+                if array.tag() != Type::Array {
+                    return Err(Error::TypeError(format!(
+                        "kan niet indexeren in objecten van type {}",
+                        array.tag()
+                    )));
+                }
+                let mut index = index.as_int();
+                let array = array.as_vec_mut();
+                if index < 0 {
+                    index = array.len() as i64 + index;
+                }
+                let index = index as usize;
+                if index >= array.len() {
+                    return Err(Error::IndexError(format!(
+                        "lijst index valt buiten de lijst"
+                    )));
+                }
+                array[index] = value;
+                stack.push(value);
+                frame.ip += 1;
+            }
             OpCode::Halt => {
                 gc.untrace(final_result);
                 return Ok(final_result);
