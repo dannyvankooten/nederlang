@@ -273,13 +273,13 @@ impl Compiler {
     fn compile_statement(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Expr(expr) => {
-                self.compile_expression(expr)?;
+                self.compile_expression(&expr)?;
                 self.add_instruction(OpCode::Pop, &[]);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
-                let symbol = self.symbols.define(name);
-                self.compile_expression(value)?;
+                let symbol = self.symbols.define(&name);
+                self.compile_expression(&value)?;
 
                 if symbol.scope == Scope::Global {
                     self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
@@ -289,7 +289,7 @@ impl Compiler {
             }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
-                self.compile_expression(expr)?;
+                self.compile_expression(&expr)?;
                 self.add_instruction(OpCode::ReturnValue, &[]);
             }
             Stmt::Break => {
@@ -346,10 +346,10 @@ impl Compiler {
     fn compile_const_var_infix_expression(
         &mut self,
         varname: &str,
-        const_value: &ExprInt,
+        const_value: i64,
         operator: &Operator,
     ) -> Result<(), Error> {
-        let idx_constant = self.add_constant(Object::int(const_value.value));
+        let idx_constant = self.add_constant(Object::int(const_value));
         let symbol = self.symbols.resolve(varname);
         match symbol {
             Some(symbol) => {
@@ -387,29 +387,29 @@ impl Compiler {
 
     fn compile_expression(&mut self, expr: &Expr) -> Result<(), Error> {
         match expr {
-            Expr::Bool(expr) => {
-                if expr.value {
+            Expr::Bool { value } => {
+                if *value {
                     self.add_instruction(OpCode::True, &[]);
                 } else {
                     self.add_instruction(OpCode::False, &[]);
                 }
             }
-            Expr::Float(expr) => {
-                let obj = Object::float(expr.value, &mut self.gc);
+            Expr::Float { value } => {
+                let obj = Object::float(*value, &mut self.gc);
                 let idx = self.add_constant(obj);
                 self.add_instruction(OpCode::Const, &[idx]);
             }
-            Expr::Int(expr) => {
-                let idx = self.add_constant(Object::int(expr.value));
+            Expr::Int { value } => {
+                let idx = self.add_constant(Object::int(*value));
                 self.add_instruction(OpCode::Const, &[idx]);
             }
-            Expr::String(expr) => {
-                let obj = Object::string(&expr.value, &mut self.gc);
+            Expr::String { value } => {
+                let obj = Object::string(&value, &mut self.gc);
                 let idx = self.add_constant(obj);
                 self.add_instruction(OpCode::Const, &[idx]);
             }
             Expr::Identifier(name) => {
-                let symbol = self.symbols.resolve(name);
+                let symbol = self.symbols.resolve(&name);
                 match symbol {
                     Some(symbol) => {
                         if symbol.scope == Scope::Global {
@@ -425,10 +425,10 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Prefix(expr) => {
-                self.compile_expression(&expr.right)?;
+            Expr::Prefix { operator, right } => {
+                self.compile_expression(&*right)?;
 
-                match expr.operator {
+                match operator {
                     Operator::Negate | Operator::Subtract => {
                         self.add_instruction(OpCode::Negate, &[]);
                     }
@@ -439,33 +439,33 @@ impl Compiler {
                     _ => {
                         return Err(Error::TypeError(format!(
                             "foutieve operator voor prefix expressie: {:?}",
-                            expr.operator
+                            operator
                         )))
                     }
                 }
             }
-            Expr::Assign(expr) => {
-                let name = match &*expr.left {
+            Expr::Assign { left, right } => {
+                let name = match &**left {
                     Expr::Identifier(name) => name,
-                    Expr::Index(index_expr) => {
-                        self.compile_expression(&index_expr.left)?;
-                        self.compile_expression(&index_expr.index)?;
-                        self.compile_expression(&expr.right)?;
+                    Expr::Index { left, index } => {
+                        self.compile_expression(&*left)?;
+                        self.compile_expression(&*index)?;
+                        self.compile_expression(&*right)?;
                         self.add_instruction(OpCode::IndexSet, &[]);
                         return Ok(());
                     }
                     _ => {
                         return Err(Error::TypeError(format!(
                             "kan geen waarde toewijzen aan expressies van type {:?}",
-                            expr.left
+                            left
                         )))
                     }
                 };
 
-                let symbol = self.symbols.resolve(name);
+                let symbol = self.symbols.resolve(&name);
                 match symbol {
                     Some(symbol) => {
-                        self.compile_expression(&expr.right)?;
+                        self.compile_expression(&*right)?;
 
                         if symbol.scope == Scope::Global {
                             // TODO: Create superinstruction for this?
@@ -483,16 +483,16 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Infix(expr) => {
+            Expr::Infix {
+                left,
+                operator,
+                right,
+            } => {
                 // If this expression is a combination of a constant & a variable, create an optimized instruction for it that skips the stack
-                match (&*expr.left, &*expr.right) {
-                    (Expr::Identifier(name), Expr::Int(inner_expr))
-                    | (Expr::Int(inner_expr), Expr::Identifier(name)) => {
-                        let res = self.compile_const_var_infix_expression(
-                            name,
-                            inner_expr,
-                            &expr.operator,
-                        );
+                match (&**left, &**right) {
+                    (Expr::Identifier(name), Expr::Int { value })
+                    | (Expr::Int { value }, Expr::Identifier(name)) => {
+                        let res = self.compile_const_var_infix_expression(&name, *value, &operator);
                         if res.is_ok() {
                             return res;
                         }
@@ -501,16 +501,20 @@ impl Compiler {
                 }
 
                 // If that failed because we haven't implemented a specialized instruction yet, compile it as a sequence of normal instructions
-                self.compile_expression(&expr.left)?;
-                self.compile_expression(&expr.right)?;
-                self.compile_operator(&expr.operator);
+                self.compile_expression(&*left)?;
+                self.compile_expression(&*right)?;
+                self.compile_operator(&operator);
             }
-            Expr::If(expr) => {
-                self.compile_expression(&expr.condition)?;
+            Expr::If {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                self.compile_expression(&*condition)?;
                 let pos_jump_before_consequence =
                     self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
 
-                self.compile_block_statement(&expr.consequence)?;
+                self.compile_block_statement(consequence)?;
                 self.remove_last_instruction_if(OpCode::Pop);
 
                 let pos_jump_after_consequence =
@@ -523,7 +527,7 @@ impl Compiler {
                     self.instructions.len(),
                 );
 
-                if let Some(alternative) = &expr.alternative {
+                if let Some(alternative) = alternative {
                     self.compile_block_statement(alternative)?;
                     self.remove_last_instruction_if(OpCode::Pop);
                 } else {
@@ -537,18 +541,18 @@ impl Compiler {
                     self.instructions.len(),
                 );
             }
-            Expr::While(expr) => {
+            Expr::While { condition, body } => {
                 // TODO: Can we get rid of this now that empty block statement emit a NULL?
                 self.add_instruction(OpCode::Null, &[]);
                 self.loop_contexts
                     .push(LoopContext::new(self.instructions.len()));
                 let pos_before_condition = self.instructions.len();
-                self.compile_expression(&expr.condition)?;
+                self.compile_expression(&*condition)?;
 
                 let pos_jump_if_false =
                     self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
                 self.add_instruction(OpCode::Pop, &[]);
-                self.compile_block_statement(&expr.body)?;
+                self.compile_block_statement(body)?;
 
                 if self.last_instruction_is(OpCode::Pop) {
                     self.remove_last_instruction();
@@ -571,9 +575,13 @@ impl Compiler {
                     self.change_instruction_operand_at(OpCode::Jump, ip, self.instructions.len());
                 }
             }
-            Expr::Function(fn_name, parameters, body) => {
-                let symbol = if fn_name != "" {
-                    Some(self.symbols.define(fn_name))
+            Expr::Function {
+                name,
+                parameters,
+                body,
+            } => {
+                let symbol = if name != "" {
+                    Some(self.symbols.define(&name))
                 } else {
                     None
                 };
@@ -582,7 +590,7 @@ impl Compiler {
                 // Compile function in a new scope
                 self.symbols.new_context();
                 for p in parameters {
-                    self.symbols.define(p);
+                    self.symbols.define(&p);
                 }
 
                 let pos_start_function = self.instructions.len();
@@ -619,34 +627,34 @@ impl Compiler {
                     self.add_instruction(OpCode::Const, &[idx]);
                 }
             }
-            Expr::Call(expr) => 'compile_call: {
-                for a in &expr.arguments {
+            Expr::Call { left, arguments } => 'compile_call: {
+                for a in arguments {
                     self.compile_expression(a)?;
                 }
 
-                if let Expr::Identifier(name) = &*expr.left {
+                if let Expr::Identifier(name) = &**left {
                     if let Some(builtin) = builtins::resolve(name) {
                         self.add_instruction(
                             OpCode::CallBuiltin,
-                            &[builtin as usize, expr.arguments.len()],
+                            &[builtin as usize, arguments.len()],
                         );
                         break 'compile_call;
                     }
                 }
-                self.compile_expression(&expr.left)?;
-                self.add_instruction(OpCode::Call, &[expr.arguments.len()]);
+                self.compile_expression(&*left)?;
+                self.add_instruction(OpCode::Call, &[arguments.len()]);
             }
 
-            Expr::Array(expr) => {
-                for v in &expr.values {
+            Expr::Array { values } => {
+                for v in values {
                     self.compile_expression(v)?;
                 }
-                self.add_instruction(OpCode::Array, &[expr.values.len()]);
+                self.add_instruction(OpCode::Array, &[values.len()]);
             }
 
-            Expr::Index(expr) => {
-                self.compile_expression(&expr.left)?;
-                self.compile_expression(&expr.index)?;
+            Expr::Index { left, index } => {
+                self.compile_expression(&*left)?;
+                self.compile_expression(&*index)?;
                 self.add_instruction(OpCode::IndexGet, &[]);
             }
 
@@ -679,10 +687,10 @@ pub(crate) struct Program {
 }
 
 impl Program {
-    pub(crate) fn new(ast: &BlockStmt) -> Result<Self, Error> {
+    pub(crate) fn new(ast: BlockStmt) -> Result<Self, Error> {
         let mut compiler = Compiler::new();
 
-        compiler.compile_block_statement(ast)?;
+        compiler.compile_block_statement(&ast)?;
         compiler.add_instruction(OpCode::Halt, &[]);
 
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
@@ -803,13 +811,13 @@ mod tests {
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
-        let program = Program::new(&ast).unwrap();
+        let program = Program::new(ast).unwrap();
         bytecode_to_human(&program.instructions, false)
     }
 
     fn assert_bytecode_eq(program: &str, expected: &str) {
         let ast = parse(program).unwrap();
-        let code = Program::new(&ast).unwrap();
+        let code = Program::new(ast).unwrap();
         assert_eq!(
             bytecode_to_human(&code.instructions, false),
             expected,
