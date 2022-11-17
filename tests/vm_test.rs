@@ -531,7 +531,7 @@ fn test_array_indexing_invalid_index() {
 
 #[test]
 fn test_indexing_on_non_array() {
-    for t in ["1[0]", "\"foo\"[0]"] {
+    for t in ["1[0]", "ja[0]"] {
         let result = run_str(t);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::TypeError(_)));
@@ -566,5 +566,75 @@ fn test_array_index_assignment_invalid_index() {
         let result = run_str(t);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::TypeError(_)));
+    }
+}
+
+#[test]
+fn test_string_indexing() {
+    for (t, e) in [
+        (r#""foobar"[0]"#, "f"),
+        (r#""foobar"[1]"#, "o"),
+        (r#""foobar"[-1]"#, "r"),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert_eq!(result.as_str(), e);
+        result.free();
+    }
+}
+
+#[test]
+fn test_string_index_assignment() {
+    for (t, e) in [
+        (r#"stel a = "foobar"; a[0] = "d"; a"#, "doobar"),
+        (r#"stel a = "foobar"; a[1] = "d"; a"#, "fdobar"),
+        (r#"stel a = "foobar"; a[-1] = "d"; a"#, "foobad"),
+    ] {
+        let result = run_str(t);
+        assert!(result.is_ok());
+
+        let result = result.unwrap();
+        assert_eq!(result.as_str(), e);
+        result.free();
+    }
+}
+
+#[test]
+fn test_string_index_out_of_bounds() {
+    for t in [(r#""foo"[4]"#), (r#""foo"[-4]"#)] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::IndexError(_)));
+    }
+}
+
+#[test]
+fn test_string_index_assignment_invalid_index() {
+    for t in [
+        r#""foobar"[1.0] = 1"#,
+        r#""foobar"[ja] = 1"#,
+        r#""foobar"["foobar"] = 1"#,
+    ] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, Error::TypeError(_)), "got {:?}", err);
+    }
+}
+
+#[test]
+fn test_string_index_assignment_invalid_value() {
+    for t in [
+        r#""foobar"[0] = 1"#,
+        r#""foobar"[0] = ja"#,
+        r#""foobar"[0] = 1.0"#,
+        r#""foobar"[0] = [1]"#,
+    ] {
+        let result = run_str(t);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, Error::TypeError(_)), "got {:?}", err);
     }
 }

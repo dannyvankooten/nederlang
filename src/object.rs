@@ -180,11 +180,17 @@ impl Object {
         unsafe { self.as_str_unchecked() }
     }
 
+    #[inline]
+    pub fn as_string_mut(&self) -> &mut RString {
+        assert_eq!(self.tag(), Type::String);
+        unsafe { &mut self.get_mut::<String>().value }
+    }
+
     /// Returns the &str value of this object pointer
     /// The caller should ensure this pointer points to an actual String type
     #[inline]
     pub unsafe fn as_str_unchecked(&self) -> &str {
-        String::read(&self)
+        self.get::<String>().value.as_str()
     }
 
     /// Returns a reference to the Vec<Pointer> value this pointer points to
@@ -270,6 +276,16 @@ impl Object {
         }
 
         self.free();
+    }
+}
+
+pub trait New<T> {
+    fn new(value: T, gc: &mut GC) -> Self;
+}
+
+impl New<RString> for Object {
+    fn new(value: RString, gc: &mut GC) -> Self {
+        String::from_string(value, gc)
     }
 }
 
@@ -363,11 +379,6 @@ struct String {
 }
 
 impl String {
-    #[inline]
-    unsafe fn read(ptr: &Object) -> &str {
-        ptr.get::<Self>().value.as_str()
-    }
-
     #[inline]
     unsafe fn destroy(ptr: Object) {
         drop_in_place(ptr.as_ptr() as *mut Self);

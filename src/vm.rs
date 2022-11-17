@@ -1,6 +1,7 @@
 use crate::builtins::{self, Builtin};
 use crate::compiler::{OpCode, Program};
-use crate::object::{Error, Object, Type};
+use crate::gc::GC;
+use crate::object::{Error, New, Object, Type};
 use crate::parser::parse;
 
 #[cfg(feature = "debug")]
@@ -58,7 +59,7 @@ impl Frame {
 
 pub fn run_str(program: &str) -> Result<Object, Error> {
     let ast = parse(program)?;
-    let program = Program::new(&ast)?;
+    let program = Program::new(ast)?;
     run(program)
 }
 
@@ -337,65 +338,14 @@ fn run(program: Program) -> Result<Object, Error> {
                 frame.ip += 3;
             }
             OpCode::IndexGet => {
-                let index = pop(&mut stack);
-                if index.tag() != Type::Int {
-                    return Err(Error::TypeError(format!(
-                        "lijst index moet een integer zijn, geen {}",
-                        index.tag()
-                    )));
-                }
-
-                let array = pop(&mut stack);
-                if array.tag() != Type::Array {
-                    return Err(Error::TypeError(format!(
-                        "kan niet indexeren in objecten van type {}",
-                        array.tag()
-                    )));
-                }
-
-                let mut index = index.as_int();
-                let array = array.as_vec();
-                if index < 0 {
-                    index = array.len() as i64 + index;
-                }
-                let index = index as usize;
-                if index >= array.len() {
-                    return Err(Error::IndexError(format!(
-                        "lijst index valt buiten de lijst"
-                    )));
-                }
-
-                stack.push(array[index]);
+                index_get(&mut stack, &mut gc)?;
                 frame.ip += 1;
             }
             OpCode::IndexSet => {
                 let value = pop(&mut stack);
                 let index = pop(&mut stack);
-                if index.tag() != Type::Int {
-                    return Err(Error::TypeError(format!(
-                        "lijst index moet een integer zijn, geen {}",
-                        index.tag()
-                    )));
-                }
-                let array = pop(&mut stack);
-                if array.tag() != Type::Array {
-                    return Err(Error::TypeError(format!(
-                        "kan niet indexeren in objecten van type {}",
-                        array.tag()
-                    )));
-                }
-                let mut index = index.as_int();
-                let array = array.as_vec_mut();
-                if index < 0 {
-                    index = array.len() as i64 + index;
-                }
-                let index = index as usize;
-                if index >= array.len() {
-                    return Err(Error::IndexError(format!(
-                        "lijst index valt buiten de lijst"
-                    )));
-                }
-                array[index] = value;
+                let left = pop(&mut stack);
+                let value = index_set(left, index, value)?;
                 stack.push(value);
                 frame.ip += 1;
             }
@@ -405,4 +355,126 @@ fn run(program: Program) -> Result<Object, Error> {
             }
         }
     }
+}
+
+fn index_get(stack: &mut Vec<Object>, gc: &mut GC) -> Result<(), Error> {
+    let index = pop(stack);
+    if index.tag() != Type::Int {
+        return Err(Error::TypeError(format!(
+            "lijst index moet een integer zijn, geen {}",
+            index.tag()
+        )));
+    }
+
+    let left = pop(stack);
+    let result = match left.tag() {
+        Type::Array => index_get_array(left, index.as_int()),
+        Type::String => index_get_string(left, index.as_int(), gc),
+        _ => {
+            return Err(Error::TypeError(format!(
+                "kan niet indexeren in objecten van type {}",
+                left.tag()
+            )))
+        }
+    }?;
+
+    stack.push(result);
+    Ok(())
+}
+
+fn index_get_array(obj: Object, mut index: i64) -> Result<Object, Error> {
+    let array = obj.as_vec();
+    if index < 0 {
+        index = array.len() as i64 + index;
+    }
+    let index = index as usize;
+    if index >= array.len() {
+        return Err(Error::IndexError(format!(
+            "lijst index valt buiten de lijst"
+        )));
+    }
+
+    Ok(array[index])
+}
+
+fn index_get_string(obj: Object, mut index: i64, gc: &mut GC) -> Result<Object, Error> {
+    let str = obj.as_str();
+    if index < 0 {
+        index = str.chars().count() as i64 + index;
+    }
+    let index = index as usize;
+    if index >= str.len() {
+        return Err(Error::IndexError(format!(
+            "lijst index valt buiten de lijst"
+        )));
+    }
+
+    let ch = str.chars().nth(index).unwrap();
+    let result = Object::new(ch.to_string(), gc);
+    Ok(result)
+}
+
+fn index_set(left: Object, index: Object, value: Object) -> Result<Object, Error> {
+    if index.tag() != Type::Int {
+        return Err(Error::TypeError(format!(
+            "lijst index moet een integer zijn, geen {}",
+            index.tag()
+        )));
+    }
+    match left.tag() {
+        Type::Array => index_set_array(left.as_vec_mut(), index.as_int(), value)?,
+        Type::String => index_set_string(left.as_string_mut(), index.as_int(), value)?,
+        _ => {
+            return Err(Error::TypeError(format!(
+                "kan niet indexeren in objecten van type {}",
+                left.tag()
+            )))
+        }
+    }
+
+    Ok(value)
+}
+
+fn index_set_array(array: &mut Vec<Object>, mut index: i64, value: Object) -> Result<(), Error> {
+    if index < 0 {
+        index = array.len() as i64 + index;
+    }
+    let index = index as usize;
+    if index >= array.len() {
+        return Err(Error::IndexError(format!(
+            "lijst index valt buiten de lijst"
+        )));
+    }
+    array[index] = value;
+    Ok(())
+}
+
+fn index_set_string(string: &mut String, mut index: i64, value: Object) -> Result<(), Error> {
+    let strlen = string.chars().count();
+    if index < 0 {
+        index = strlen as i64 + index;
+    }
+    let index = index as usize;
+    if index >= strlen {
+        return Err(Error::IndexError(format!(
+            "lijst index valt buiten de lijst"
+        )));
+    }
+
+    if value.tag() != Type::String {
+        return Err(Error::TypeError(format!(
+            "kan geen niet-string invoegen op string object"
+        )));
+    }
+
+    string.replace_range(
+        string
+            .char_indices()
+            .nth(index)
+            .map(|(pos, ch)| (pos..pos + ch.len_utf8()))
+            .unwrap(),
+        value.as_str(),
+    );
+
+    Ok(())
 }
