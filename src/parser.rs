@@ -203,7 +203,6 @@ impl<'a> Parser<'a> {
         for ch in value.chars() {
             let next = b.next();
             if ch == '\\' && (next == Some('"') || next == Some('\\')) {
-                println!("Skipping \\");
                 continue;
             }
 
