@@ -11,6 +11,7 @@ pub(crate) enum Builtin {
     Float,
     Int,
     String,
+    Length,
 }
 
 pub(crate) fn resolve(name: &str) -> Option<Builtin> {
@@ -21,6 +22,7 @@ pub(crate) fn resolve(name: &str) -> Option<Builtin> {
         "float" => Some(Builtin::Float),
         "bool" => Some(Builtin::Bool),
         "string" => Some(Builtin::String),
+        "lengte" => Some(Builtin::Length),
         _ => None,
     }
 }
@@ -34,6 +36,7 @@ pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Result<Obj
         Builtin::Bool => call_bool(args),
         Builtin::Float => call_float(args, gc),
         Builtin::Int => call_int(args),
+        Builtin::Length => call_length(args),
     }
 }
 
@@ -137,7 +140,7 @@ fn call_int(args: &[Object]) -> Result<Object, Error> {
                 0
             }
         }
-        Type::Float => unsafe { args[0].as_f64_unchecked() as i64 },
+        Type::Float => unsafe { args[0].as_f64_unchecked() as isize },
         Type::Int => return Ok(args[0]),
         Type::String => unsafe {
             match args[0].as_str_unchecked().trim().parse() {
@@ -201,4 +204,25 @@ fn call_float(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
     };
 
     Ok(Object::float(result, gc))
+}
+
+fn call_length(args: &[Object]) -> Result<Object, Error> {
+    if args.len() != 1 {
+        return Err(Error::ArgumentError(format!(
+            "lengte() verwacht 1 argument, maar kreeg er {}",
+            args.len()
+        )));
+    }
+
+    let length = match args[0].tag() {
+        Type::String => args[0].as_str().chars().count(),
+        Type::Array => args[0].as_vec().len(),
+        _ => {
+            return Err(Error::TypeError(format!(
+                "kan geen lengte opvragen van object met type {}",
+                args[0].tag()
+            )))
+        }
+    };
+    Ok(Object::int(length as isize))
 }
