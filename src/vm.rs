@@ -382,10 +382,10 @@ fn index_get(stack: &mut Vec<Object>, gc: &mut GC) -> Result<(), Error> {
     Ok(())
 }
 
-fn index_get_array(obj: Object, mut index: i64) -> Result<Object, Error> {
+fn index_get_array(obj: Object, mut index: isize) -> Result<Object, Error> {
     let array = obj.as_vec();
     if index < 0 {
-        index = array.len() as i64 + index;
+        index = array.len() as isize + index;
     }
     let index = index as usize;
     if index >= array.len() {
@@ -397,10 +397,10 @@ fn index_get_array(obj: Object, mut index: i64) -> Result<Object, Error> {
     Ok(array[index])
 }
 
-fn index_get_string(obj: Object, mut index: i64, gc: &mut GC) -> Result<Object, Error> {
+fn index_get_string(obj: Object, mut index: isize, gc: &mut GC) -> Result<Object, Error> {
     let str = obj.as_str();
     if index < 0 {
-        index = str.chars().count() as i64 + index;
+        index = str.chars().count() as isize + index;
     }
     let index = index as usize;
     if index >= str.len() {
@@ -435,9 +435,9 @@ fn index_set(left: Object, index: Object, value: Object) -> Result<Object, Error
     Ok(value)
 }
 
-fn index_set_array(array: &mut Vec<Object>, mut index: i64, value: Object) -> Result<(), Error> {
+fn index_set_array(array: &mut Vec<Object>, mut index: isize, value: Object) -> Result<(), Error> {
     if index < 0 {
-        index = array.len() as i64 + index;
+        index = array.len() as isize + index;
     }
     let index = index as usize;
     if index >= array.len() {
@@ -449,10 +449,10 @@ fn index_set_array(array: &mut Vec<Object>, mut index: i64, value: Object) -> Re
     Ok(())
 }
 
-fn index_set_string(string: &mut String, mut index: i64, value: Object) -> Result<(), Error> {
+fn index_set_string(string: &mut String, mut index: isize, value: Object) -> Result<(), Error> {
     let strlen = string.chars().count();
     if index < 0 {
-        index = strlen as i64 + index;
+        index = strlen as isize + index;
     }
     let index = index as usize;
     if index >= strlen {

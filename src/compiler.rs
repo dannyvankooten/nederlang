@@ -346,7 +346,7 @@ impl Compiler {
     fn compile_const_var_infix_expression(
         &mut self,
         varname: &str,
-        const_value: i64,
+        const_value: isize,
         operator: &Operator,
     ) -> Result<(), Error> {
         let idx_constant = self.add_constant(Object::int(const_value));

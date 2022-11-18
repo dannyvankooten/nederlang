@@ -35,11 +35,11 @@ const VALUE_SHIFT_BITS: usize = 3;
 
 #[allow(unused)]
 /// The max integer value we can store in a value object
-const MAX_INT: i64 = std::i64::MAX >> VALUE_SHIFT_BITS;
+const MAX_INT: isize = std::isize::MAX >> VALUE_SHIFT_BITS;
 
 #[allow(unused)]
 /// The minimum integer value we can store in a value object
-const MIN_INT: i64 = std::i64::MIN >> VALUE_SHIFT_BITS;
+const MIN_INT: isize = std::isize::MIN >> VALUE_SHIFT_BITS;
 
 #[derive(Debug, PartialEq)]
 #[repr(u8)]
@@ -88,7 +88,7 @@ impl Object {
 
     /// Create a new integer value
     #[inline(always)]
-    pub fn int(value: i64) -> Self {
+    pub fn int(value: isize) -> Self {
         // assert there is no data loss because of the shift
         debug_assert_eq!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS), value);
 
@@ -98,7 +98,7 @@ impl Object {
     /// Create a new function value
     #[inline]
     pub fn function(ip: u32, num_locals: u16) -> Self {
-        let value = ((ip as i64) << 16) | num_locals as i64;
+        let value = ((ip as isize) << 16) | num_locals as isize;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
@@ -137,15 +137,15 @@ impl Object {
     /// Returns the integer value of this object pointer
     /// Note that is up to the caller to ensure this pointer is of the correct type
     #[inline(always)]
-    pub fn as_int(self) -> i64 {
-        self.0 as i64 >> VALUE_SHIFT_BITS
+    pub fn as_int(self) -> isize {
+        self.0 as isize >> VALUE_SHIFT_BITS
     }
 
     /// Returns the function value of this object
     /// Note that is up to the caller to ensure this pointer is of the correct type
     #[inline(always)]
     pub fn as_function(self) -> [u32; 2] {
-        let value = self.0 as i64 >> VALUE_SHIFT_BITS;
+        let value = self.0 as isize >> VALUE_SHIFT_BITS;
 
         // lower 16-bits store the number of locals
         let num_locals = (value & 0xFFFF) as u32;

@@ -26,7 +26,7 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Int {
-        value: i64,
+        value: isize,
     },
     Float {
         value: f64,
