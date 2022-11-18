@@ -9,17 +9,14 @@ functie is_even(n) {
     n % 2 == 0
 }
 
+// Voorwaardelijke stellingen
 als is_even(2) {
-    10
-    // print("Ja, 2 is een even getal!");
+    print("Ja, 2 is een even getal!");
 } 
 
 stel b = als nee { 1 } anders { 2 }
 
-als b == 2 {
-    b += 1
-}
-
+// Lussen
 zolang b > 0 {
     b -= 1
 
@@ -27,5 +24,14 @@ zolang b > 0 {
         stop
     }
 }
+print("b = {}", b)
 
-b
+// Karakters in een string vervangen
+stel tekst = "🇳🇱💖";
+tekst[-1] = "🏆"
+print(tekst)
+
+// Lijsten
+stel c = [1, 2, 3];
+c[0] = c[-1];
+print(c)
