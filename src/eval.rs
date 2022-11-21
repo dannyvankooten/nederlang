@@ -4,8 +4,6 @@ use crate::ast::{
 };
 use crate::object::*;
 use crate::parser;
-use std::cell::RefCell;
-use fxhash::FxHashMap as HashMap;
 use parser::ParseError;
 
 #[derive(Debug, PartialEq)]
@@ -15,50 +13,45 @@ pub(crate) enum Error {
     ReferenceError(String),
 }
 
+type Scope = Vec<(String, Object)>;
+
 #[derive(Debug)]
-pub struct Environment<'a> {
-    symbols: RefCell<HashMap<String, Object>>,
-    outer: Option<&'a Environment<'a>>,
+pub struct Environment {
+    scopes: Vec<Scope>,
 }
 
-impl<'a> Environment<'a> {
+impl Environment {
     pub fn new() -> Self {
         Environment {
-            symbols: RefCell::new(HashMap::default()),
-            outer: None,
-        }
-    }
-
-    pub fn new_from(env: &'a Environment<'_>) -> Self {
-        Environment {
-            symbols: RefCell::new(HashMap::default()),
-            outer: Some(env),
+            scopes: vec![ Vec::new() ],
         }
     }
 
     pub(crate) fn resolve(&self, ident: &str) -> Object {
-        let hm = self.symbols.borrow();
-        if let Some(value) = hm.get(ident) {
-            return value.clone();
-        } else if let Some(outer) = &self.outer {
-            return outer.resolve(ident);
+        for scope in self.scopes.iter().rev() {
+            for (name, value) in scope {
+                if name == ident {
+                    return value.clone();
+                }
+            }
         }
-
+      
         Object::Null
     }
 
-    pub(crate) fn insert(&self, ident: &str, value: Object) {
-        self.symbols.borrow_mut().insert(ident.to_owned(), value);
+    pub(crate) fn insert(&mut self, ident: &str, value: Object) {
+        let scope = self.scopes.last_mut().unwrap();
+        scope.push((ident.to_owned(), value));
     }
 
-    pub(crate) fn update(&self, ident: &str, value: Object) -> Result<(), Error> {
-        let mut hm = self.symbols.borrow_mut();
-
-        if let Some(old_value) = hm.get_mut(ident) {
-            *old_value = value;
-            return Ok(());
-        } else if let Some(outer) = &self.outer {
-            return outer.update(ident, value);
+    pub(crate) fn update(&mut self, ident: &str, new_value: Object) -> Result<(), Error> {
+        for scope in self.scopes.iter_mut().rev() {
+            for (name, value) in scope {
+                if name == ident {
+                    *value = new_value.clone();
+                    return Ok(());
+                }
+            }
         }
 
         Err(Error::ReferenceError(format!(
@@ -215,12 +208,14 @@ fn eval_expr(expr: &Expr, env: &mut Environment) -> Result<Object, Error> {
                         values.push(eval_expr(arg_expr, env)?);
                     }
 
-                    let mut fn_env = Environment::new_from(env);
+                    let mut scope = Scope::with_capacity(parameters.len());
                     for (name, value) in std::iter::zip(parameters, values) {
-                        fn_env.insert(&name, value);
+                        scope.push((name, value));
                     }
-
-                    return eval_block(&body, &mut fn_env);
+                    env.scopes.push(scope);
+                    let result = eval_block(&body, env);
+                    env.scopes.pop();
+                    return result;
                 }
                 _ => {
                     return Err(Error::TypeError(format!(
