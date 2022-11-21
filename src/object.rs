@@ -1,4 +1,4 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, ExprFunction};
 use crate::eval::Error;
 use std::fmt::Display;
 use std::ops;
@@ -11,7 +11,7 @@ pub(crate) enum Object {
     Float(f64),
     Bool(bool),
     String(String),
-    Func(Vec<String>, Vec<Expr>),
+    Func(*const ExprFunction),
 }
 
 impl Object {

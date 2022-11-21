@@ -1,6 +1,6 @@
 use crate::ast::{
     Expr, ExprAssign, ExprBool, ExprDeclare, ExprFloat, ExprFunction, ExprIf, ExprInfix, ExprInt,
-    ExprPrefix, ExprString, Operator,
+    ExprPrefix, ExprString, Operator, ExprCall,
 };
 use crate::object::*;
 use crate::parser;
@@ -158,13 +158,51 @@ fn eval_string_expr(expr: &ExprString) -> Result<Object, Error> {
 }
 
 fn eval_function_expr(expr: &ExprFunction) -> Result<Object, Error> {
-    Ok(Object::Func(expr.parameters.clone(), expr.body.clone()))
+    Ok(Object::Func(expr as *const ExprFunction))
 }
 
 fn eval_declare_expr(expr: &ExprDeclare, env: &mut Environment) -> Result<Object, Error> {
     let value = eval_expr(&*expr.value, env)?;
     env.insert(&expr.name, value);
     Ok(Object::Null)
+}
+
+fn eval_call_expr(expr: &ExprCall, env: &mut Environment) -> Result<Object, Error> {
+    let function = match &*expr.func {
+        Expr::Identifier(name) => env.resolve(&name),
+        Expr::Function(expr) => eval_function_expr(expr)?,
+        _ => panic!("Expression of type {:?} is not callable.", expr.func),
+    };
+
+    match function {
+        Object::Func(ptr) => {
+            let func = unsafe { &*(ptr as *const ExprFunction) };
+            if expr.arguments.len() != func.parameters.len() {
+                return Err(Error::TypeError(format!(
+                    "{} takes exactly {} arguments ({} given)",
+                    "function",
+                    func.parameters.len(),
+                    expr.arguments.len()
+                )));
+            }
+
+            let mut scope = Scope::with_capacity(func.parameters.len());
+            for (name, value_expr) in std::iter::zip(&func.parameters, &expr.arguments) {
+                let value = eval_expr(value_expr, env)?;
+                scope.push((name.clone(), value));
+            }
+            env.scopes.push(scope);
+            let result = eval_block(&func.body, env);
+            env.scopes.pop();
+            return result;
+        }
+        _ => {
+            return Err(Error::TypeError(format!(
+                "Object of type {:?} is not callable.",
+                function
+            )))
+        }
+    }
 }
 
 fn eval_expr(expr: &Expr, env: &mut Environment) -> Result<Object, Error> {
@@ -184,47 +222,7 @@ fn eval_expr(expr: &Expr, env: &mut Environment) -> Result<Object, Error> {
             Ok(obj)
         }
         Expr::Declare(expr) => eval_declare_expr(expr, env),
-        Expr::Call(expr) => {
-            let function = match &*expr.func {
-                Expr::Identifier(name) => env.resolve(&name),
-                Expr::Function(expr) => eval_function_expr(expr)?,
-                _ => panic!("Expression of type {:?} is not callable.", expr.func),
-            };
-
-            match function {
-                Object::Func(parameters, body) => {
-                    if expr.arguments.len() != parameters.len() {
-                        // TODO: Supply function name here.
-                        return Err(Error::TypeError(format!(
-                            "{} takes exactly {} arguments ({} given)",
-                            "function",
-                            parameters.len(),
-                            expr.arguments.len()
-                        )));
-                    }
-
-                    let mut values = Vec::with_capacity(expr.arguments.len());
-                    for arg_expr in &expr.arguments {
-                        values.push(eval_expr(arg_expr, env)?);
-                    }
-
-                    let mut scope = Scope::with_capacity(parameters.len());
-                    for (name, value) in std::iter::zip(parameters, values) {
-                        scope.push((name, value));
-                    }
-                    env.scopes.push(scope);
-                    let result = eval_block(&body, env);
-                    env.scopes.pop();
-                    return result;
-                }
-                _ => {
-                    return Err(Error::TypeError(format!(
-                        "Object of type {:?} is not callable.",
-                        function
-                    )))
-                }
-            }
-        }
+        Expr::Call(expr) => eval_call_expr(expr, env),
         _ => unimplemented!(
             "Evaluating expressions of type {:?} is not yet implemented.",
             expr
