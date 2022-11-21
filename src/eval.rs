@@ -13,7 +13,7 @@ pub(crate) enum Error {
     ReferenceError(String),
 }
 
-type Scope<'a> = Vec<(String, Object<'a>)>;
+type Scope<'a> = Vec<(&'a str, Object<'a>)>;
 
 #[derive(Debug)]
 pub struct Environment<'a> {
@@ -30,7 +30,7 @@ impl<'a> Environment<'a> {
     pub(crate) fn resolve(&self, ident: &str) -> Object<'a> {
         for scope in self.scopes.iter().rev() {
             for (name, value) in scope {
-                if name == ident {
+                if *name == ident {
                     return value.clone();
                 }
             }
@@ -39,15 +39,15 @@ impl<'a> Environment<'a> {
         Object::Null
     }
 
-    pub(crate) fn insert(&mut self, ident: &str, value: Object<'a>) {
+    pub(crate) fn insert(&mut self, ident: &'a str, value: Object<'a>) {
         let scope = self.scopes.last_mut().unwrap();
-        scope.push((ident.to_owned(), value));
+        scope.push((ident, value));
     }
 
     pub(crate) fn update(&mut self, ident: &str, new_value: Object<'a>) -> Result<(), Error> {
         for scope in self.scopes.iter_mut().rev() {
             for (name, value) in scope {
-                if name == ident {
+                if *name == ident {
                     *value = new_value.clone();
                     return Ok(());
                 }
@@ -204,7 +204,7 @@ fn eval_call_expr<'a>(expr: &'a ExprCall, env: &mut Environment<'a>) -> Result<O
             let mut scope = Scope::with_capacity(func.parameters.len());
             for (name, value_expr) in std::iter::zip(&func.parameters, &expr.arguments) {
                 let value = eval_expr(value_expr, env)?;
-                scope.push((name.clone(), value));
+                scope.push((name, value));
             }
             env.scopes.push(scope);
             let result = eval_block(&func.body, env);
