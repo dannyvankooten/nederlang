@@ -6,7 +6,7 @@ mod lexer;
 mod object;
 mod parser;
 
-use eval::{eval_ast, Environment, Error};
+use eval::eval_ast;
 use std::{
     fs,
     io::{self, Write},
@@ -15,7 +15,6 @@ use std::{
 
 fn repl() {
     let mut buffer = String::with_capacity(512);
-    let mut env = Environment::new();
 
     loop {
         buffer.clear();
