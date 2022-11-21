@@ -1,7 +1,7 @@
 use crate::lexer::Token;
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) enum Expr {
+pub enum Expr {
     Infix(ExprInfix),
     Prefix(ExprPrefix),
     Int(ExprInt),
@@ -9,82 +9,81 @@ pub(crate) enum Expr {
     Bool(ExprBool),
     If(ExprIf),
     Identifier(String),
-    Function(String, Vec<String>, BlockStmt),
+    Function(ExprFunction),
     Call(ExprCall),
     Assign(ExprAssign),
     String(ExprString),
-    Array,
-    Index,
-    For,
-    While,
+    Declare(ExprDeclare),
+    Block(Vec<Expr>),
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) struct ExprInfix {
-    pub(crate) left: Box<Expr>,
-    pub(crate) operator: Operator,
-    pub(crate) right: Box<Expr>,
+pub struct ExprDeclare {
+    pub name: String,
+    pub value: Box<Expr>,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) struct ExprAssign {
-    pub(crate) left: Box<Expr>,
-    pub(crate) right: Box<Expr>,
+pub struct ExprFunction {
+    pub name: String,
+    pub parameters: Vec<String>,
+    pub body: Vec<Expr>,
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub struct ExprInfix {
+    pub left: Box<Expr>,
+    pub operator: Operator,
+    pub right: Box<Expr>,
+}
+
+#[derive(PartialEq, Debug, PartialOrd, Clone)]
+pub struct ExprAssign {
+    pub left: Box<Expr>,
+    pub right: Box<Expr>,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub(crate) struct ExprInt {
-    pub(crate) value: i64,
+pub struct ExprInt {
+    pub value: i64,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub(crate) struct ExprFloat {
-    pub(crate) value: f64,
+pub struct ExprFloat {
+    pub value: f64,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub(crate) struct ExprBool {
-    pub(crate) value: bool,
+pub struct ExprBool {
+    pub value: bool,
 }
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
-pub(crate) struct ExprString {
-    pub(crate) value: String,
+pub struct ExprString {
+    pub value: String,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) struct ExprPrefix {
-    pub(crate) operator: Operator,
-    pub(crate) right: Box<Expr>,
+pub struct ExprPrefix {
+    pub operator: Operator,
+    pub right: Box<Expr>,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) struct ExprIf {
-    pub(crate) condition: Box<Expr>,
-    pub(crate) consequence: BlockStmt,
-    pub(crate) alternative: Option<BlockStmt>,
+pub struct ExprIf {
+    pub condition: Box<Expr>,
+    pub consequence: Vec<Expr>,
+    pub alternative: Option<Vec<Expr>>,
 }
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) struct ExprCall {
-    pub(crate) func: Box<Expr>,
-    pub(crate) arguments: Vec<Expr>,
+pub struct ExprCall {
+    pub func: Box<Expr>,
+    pub arguments: Vec<Expr>,
 }
-
-#[derive(PartialEq, Debug, PartialOrd, Clone)]
-pub(crate) enum Stmt {
-    Let(String, Expr),
-    // Return(Expr),
-    Expr(Expr),
-    Block(BlockStmt),
-    // Break,
-    // Continue,
-}
-
-pub(crate) type BlockStmt = Vec<Stmt>;
 
 #[derive(PartialEq, Eq, Debug, PartialOrd, Clone)]
-pub(crate) enum Operator {
+pub enum Operator {
     Add,
     Subtract,
     Multiply,
@@ -157,7 +156,7 @@ impl ExprAssign {
 }
 
 impl ExprIf {
-    pub fn new(condition: Expr, consequence: BlockStmt, alternative: Option<BlockStmt>) -> Expr {
+    pub fn new(condition: Expr, consequence: Vec<Expr>, alternative: Option<Vec<Expr>>) -> Expr {
         Expr::If(ExprIf {
             condition: Box::new(condition),
             consequence,
