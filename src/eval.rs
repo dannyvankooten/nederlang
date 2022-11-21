@@ -18,6 +18,7 @@ impl<'a> Environment<'a> {
         }
     }
 
+    #[inline(always)]
     pub(crate) fn resolve(&self, ident: &str) -> Object {
         for scope in self.scopes.iter().rev() {
             for (name, value) in scope {
@@ -78,6 +79,7 @@ fn eval_assign_expr<'a>(expr: &'a ExprAssign, env: &mut Environment<'a>) -> Resu
     }
 }
 
+#[inline]
 fn eval_infix_expr<'a>(expr: &'a ExprInfix, env: &mut Environment<'a>) -> Result<Object, Error> {
     let left = eval_expr(&*expr.left, env)?;
     let right = eval_expr(&*expr.right, env)?;
@@ -116,6 +118,7 @@ fn eval_prefix_expr<'a>(expr: &'a ExprPrefix, env: &mut Environment<'a>) -> Resu
     }
 }
 
+#[inline]
 fn eval_if_expr<'a>(expr: &'a ExprIf, env: &mut Environment<'a>) -> Result<Object, Error> {
     let condition = eval_expr(&*expr.condition, env)?;
 
@@ -128,6 +131,7 @@ fn eval_if_expr<'a>(expr: &'a ExprIf, env: &mut Environment<'a>) -> Result<Objec
     }
 }
 
+#[inline(always)]
 fn eval_block<'a>(block: &'a Vec<Expr>, env: &mut Environment<'a>) -> Result<Object, Error> {
     let mut last = Object::null();
     for expr in block {
@@ -136,14 +140,17 @@ fn eval_block<'a>(block: &'a Vec<Expr>, env: &mut Environment<'a>) -> Result<Obj
     Ok(last)
 }
 
+#[inline(always)]
 fn eval_int_expr(expr: &ExprInt) -> Result<Object, Error> {
     Ok(Object::int(expr.value))
 }
 
+#[inline(always)]
 fn eval_float_expr(expr: &ExprFloat) -> Result<Object, Error> {
     Ok(Object::float(expr.value))
 }
 
+#[inline(always)]
 fn eval_bool_expr(expr: &ExprBool) -> Result<Object, Error> {
     Ok(Object::bool(expr.value))
 }
@@ -152,6 +159,7 @@ fn eval_string_expr(expr: &ExprString) -> Result<Object, Error> {
     Ok(Object::string(&expr.value))
 }
 
+#[inline(always)]
 fn eval_function_expr(expr: &ExprFunction) -> Result<Object, Error> {
     Ok(Object::function(expr))
 }
@@ -165,6 +173,7 @@ fn eval_declare_expr<'a>(
     Ok(Object::null())
 }
 
+#[inline]
 fn eval_call_expr<'a>(expr: &'a ExprCall, env: &mut Environment<'a>) -> Result<Object, Error> {
     let obj = match &*expr.func {
         Expr::Identifier(name) => env.resolve(&name),
@@ -200,6 +209,7 @@ fn eval_call_expr<'a>(expr: &'a ExprCall, env: &mut Environment<'a>) -> Result<O
     return result;
 }
 
+#[inline]
 fn eval_expr<'a>(expr: &'a Expr, env: &mut Environment<'a>) -> Result<Object, Error> {
     match expr {
         Expr::Infix(expr) => eval_infix_expr(expr, env),

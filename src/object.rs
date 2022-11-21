@@ -61,16 +61,19 @@ unsafe impl Send for Object {}
 
 impl<'a> Object {
     /// Creates a new object from the value (or address) given with the given type mask applied
+    #[inline(always)]
     fn with_type(raw: *mut u8, t: Type) -> Self {
         Self((raw as usize | t as usize) as _)
     }
 
     /// Create a new null value
+    #[inline(always)]
     pub fn null() -> Self {
         Self(0 as _)
     }
 
     /// Create a new boolean value
+    #[inline(always)]
     pub fn bool(value: bool) -> Self {
         match value {
             true => Self::with_type((1 << VALUE_SHIFT_BITS) as _, Type::Bool),
@@ -79,6 +82,7 @@ impl<'a> Object {
     }
 
     /// Create a new integer value
+    #[inline(always)]
     pub fn int(value: i64) -> Self {
         // assert there is no data loss because of the shift
         debug_assert_eq!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS), value);
@@ -87,22 +91,26 @@ impl<'a> Object {
     }
 
     /// Create a new function value
+    #[inline]
     pub(crate) fn function(func: &'a ExprFunction) -> Self {
         let ptr = func as *const ExprFunction;
         Self::with_type(ptr as _, Type::Function)
     }
 
     /// Create a new (garbage-collected) String value
+    #[inline]
     pub fn string(value: &str) -> Self {
         String::from_str(value)
     }
 
     /// Create a new (garbage-collected) Float value
+    #[inline]
     pub fn float(value: f64) -> Self {
         Float::from_f64(value)
     }
 
     /// Returns the type of this object pointer
+    #[inline(always)]
     pub fn tag(self) -> Type {
         // Safety: self.0 with TAG_MASK applied will always yield a correct Type
         unsafe { std::mem::transmute((self.0 as usize & TAG_MASK) as u8) }
@@ -110,22 +118,26 @@ impl<'a> Object {
 
     /// Returns the boolean value of this object pointer
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline(always)]
     pub fn as_bool(self) -> bool {
         ((self.0 as u8 >> VALUE_SHIFT_BITS) as u8) != 0
     }
 
     /// Returns the integer value of this object pointer
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline(always)]
     pub fn as_int(self) -> i64 {
         self.0 as i64 >> VALUE_SHIFT_BITS
     }
 
     /// Returns the function value of this object
     /// Note that is up to the caller to ensure this pointer is of the correct type
+    #[inline]
     pub(crate) fn as_function(&self) -> &'a ExprFunction {
         unsafe { self.get::<ExprFunction>() }
     }
 
+    #[inline(always)]
     pub fn is_truthy(self) -> bool {
         match self.tag() {
             Type::Bool => self.as_bool(),
