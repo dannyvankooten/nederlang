@@ -5,8 +5,7 @@ use crate::ast::{
 use crate::object::*;
 use crate::parser;
 use std::cell::RefCell;
-use std::collections::HashMap;
-// use fxhash::FxHashMap as HashMap;
+use fxhash::FxHashMap as HashMap;
 use parser::ParseError;
 
 #[derive(Debug, PartialEq)]
