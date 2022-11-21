@@ -1,20 +1,20 @@
-use crate::ast::{Expr, ExprFunction};
+use crate::ast::ExprFunction;
 use crate::eval::Error;
 use std::fmt::Display;
 use std::ops;
 use std::string::String;
 
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
-pub(crate) enum Object {
+pub(crate) enum Object<'a> {
     Null,
     Int(i64),
     Float(f64),
     Bool(bool),
     String(String),
-    Func(*const ExprFunction),
+    Func(&'a ExprFunction),
 }
 
-impl Object {
+impl Object<'_> {
     pub(crate) fn is_truthy(&self) -> bool {
         match self {
             Object::Bool(v) => *v,
@@ -29,7 +29,7 @@ impl Object {
     }
 }
 
-impl Display for Object {
+impl Display for Object<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Object::Bool(v) => f.write_fmt(format_args!("{}", v)),
@@ -42,8 +42,8 @@ impl Display for Object {
     }
 }
 
-impl ops::Add<Object> for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Add<Object<'a>> for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
     fn add(self, rhs: Object) -> Result<Object, Error> {
         let r = match (&self, &rhs) {
@@ -69,8 +69,8 @@ impl ops::Add<Object> for Object {
     }
 }
 
-impl ops::Sub<Object> for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Sub<Object<'a>> for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
     fn sub(self, rhs: Object) -> Result<Object, Error> {
         let r = match (&self, &rhs) {
@@ -87,8 +87,8 @@ impl ops::Sub<Object> for Object {
     }
 }
 
-impl ops::Mul<Object> for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Mul<Object<'a>> for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
     fn mul(self, rhs: Object) -> Result<Object, Error> {
         let r = match (&self, &rhs) {
@@ -106,8 +106,8 @@ impl ops::Mul<Object> for Object {
     }
 }
 
-impl ops::Div<Object> for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Div<Object<'a>> for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
     fn div(self, rhs: Object) -> Result<Object, Error> {
         let r = match (&self, &rhs) {
@@ -125,8 +125,8 @@ impl ops::Div<Object> for Object {
     }
 }
 
-impl ops::Rem<Object> for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Rem<Object<'a>> for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
     fn rem(self, rhs: Object) -> Result<Object, Error> {
         let r = match (&self, &rhs) {
@@ -143,10 +143,10 @@ impl ops::Rem<Object> for Object {
     }
 }
 
-impl ops::Not for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Not for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
-    fn not(self) -> Result<Object, Error> {
+    fn not(self) -> Result<Object<'a>, Error> {
         let r = match self {
             Object::Bool(v) => Object::Bool(!v),
             _ => {
@@ -161,10 +161,10 @@ impl ops::Not for Object {
     }
 }
 
-impl ops::Neg for Object {
-    type Output = Result<Object, Error>;
+impl<'a> ops::Neg for Object<'a> {
+    type Output = Result<Object<'a>, Error>;
 
-    fn neg(self) -> Result<Object, Error> {
+    fn neg(self) -> Result<Object<'a>, Error> {
         let r = match self {
             Object::Int(v) => Object::Int(-v),
             Object::Float(v) => Object::Float(-v),
@@ -183,7 +183,7 @@ use Object::*;
 
 macro_rules! impl_cmp {
     ($func_name:ident, $op:tt) => {
-        pub fn $func_name(&self, other: &Self) -> Result<Object, Error> {
+        pub fn $func_name(&self, other: &Self) -> Result<Object<'a>, Error> {
 
             if std::mem::discriminant(self) != std::mem::discriminant(other) {
                 return Err(Error::TypeError(format!(
@@ -197,17 +197,17 @@ macro_rules! impl_cmp {
     };
 }
 
-impl Object {
+impl<'a> Object<'a> {
     impl_cmp!(gt, >);
     impl_cmp!(gte, >=);
     impl_cmp!(lt, <);
     impl_cmp!(lte, <=);
 
-    pub fn eq(&self, other: &Self) -> Result<Object, Error> {
+    pub fn eq(&self, other: &Self) -> Result<Object<'a>, Error> {
         Ok(Bool(self == other))
     }
 
-    pub fn neq(&self, other: &Self) -> Result<Object, Error> {
+    pub fn neq(&self, other: &Self) -> Result<Object<'a>, Error> {
         Ok(Bool(self != other))
     }
 }

@@ -1,6 +1,6 @@
 use crate::ast::{
-    Expr, ExprAssign, ExprBool, ExprDeclare, ExprFloat, ExprFunction, ExprIf, ExprInfix, ExprInt,
-    ExprPrefix, ExprString, Operator, ExprCall,
+    Expr, ExprAssign, ExprBool, ExprCall, ExprDeclare, ExprFloat, ExprFunction, ExprIf, ExprInfix,
+    ExprInt, ExprPrefix, ExprString, Operator,
 };
 use crate::object::*;
 use crate::parser;
@@ -13,21 +13,21 @@ pub(crate) enum Error {
     ReferenceError(String),
 }
 
-type Scope = Vec<(String, Object)>;
+type Scope<'a> = Vec<(String, Object<'a>)>;
 
 #[derive(Debug)]
-pub struct Environment {
-    scopes: Vec<Scope>,
+pub struct Environment<'a> {
+    scopes: Vec<Scope<'a>>,
 }
 
-impl Environment {
+impl<'a> Environment<'a> {
     pub fn new() -> Self {
         Environment {
-            scopes: vec![ Vec::new() ],
+            scopes: vec![Vec::new()],
         }
     }
 
-    pub(crate) fn resolve(&self, ident: &str) -> Object {
+    pub(crate) fn resolve(&self, ident: &str) -> Object<'a> {
         for scope in self.scopes.iter().rev() {
             for (name, value) in scope {
                 if name == ident {
@@ -35,16 +35,16 @@ impl Environment {
                 }
             }
         }
-      
+
         Object::Null
     }
 
-    pub(crate) fn insert(&mut self, ident: &str, value: Object) {
+    pub(crate) fn insert(&mut self, ident: &str, value: Object<'a>) {
         let scope = self.scopes.last_mut().unwrap();
         scope.push((ident.to_owned(), value));
     }
 
-    pub(crate) fn update(&mut self, ident: &str, new_value: Object) -> Result<(), Error> {
+    pub(crate) fn update(&mut self, ident: &str, new_value: Object<'a>) -> Result<(), Error> {
         for scope in self.scopes.iter_mut().rev() {
             for (name, value) in scope {
                 if name == ident {
@@ -61,18 +61,25 @@ impl Environment {
     }
 }
 
-pub(crate) fn eval_program(program: &str, env: Option<&mut Environment>) -> Result<Object, Error> {
-    let mut default_env = Environment::new();
-    let env = env.unwrap_or(&mut default_env);
-    let ast = parser::parse(program).map_err(Error::SyntaxError)?;
+pub(crate) fn eval_ast<'a>(
+    root: &'a Vec<Expr>,
+    _env: Option<&mut Environment>,
+) -> Result<Object<'a>, Error> {
+    let mut env = Environment::new();
+    // let env = env.unwrap_or(&mut default_env);
     let mut last = Object::Null;
-    for s in &ast {
-        last = eval_expr(s, env)?;
+    for s in root {
+        last = eval_expr(s, &mut env)?;
     }
+
+    // TODO: Fix this
     Ok(last)
 }
 
-fn eval_assign_expr(expr: &ExprAssign, env: &mut Environment) -> Result<Object, Error> {
+fn eval_assign_expr<'a>(
+    expr: &'a ExprAssign,
+    env: &mut Environment<'a>,
+) -> Result<Object<'a>, Error> {
     match &*expr.left {
         Expr::Identifier(name) => {
             let right = eval_expr(&*expr.right, env)?;
@@ -83,7 +90,10 @@ fn eval_assign_expr(expr: &ExprAssign, env: &mut Environment) -> Result<Object, 
     }
 }
 
-fn eval_infix_expr(expr: &ExprInfix, env: &mut Environment) -> Result<Object, Error> {
+fn eval_infix_expr<'a>(
+    expr: &'a ExprInfix,
+    env: &mut Environment<'a>,
+) -> Result<Object<'a>, Error> {
     let left = eval_expr(&*expr.left, env)?;
     let right = eval_expr(&*expr.right, env)?;
 
@@ -108,7 +118,10 @@ fn eval_infix_expr(expr: &ExprInfix, env: &mut Environment) -> Result<Object, Er
     }
 }
 
-fn eval_prefix_expr(expr: &ExprPrefix, env: &mut Environment) -> Result<Object, Error> {
+fn eval_prefix_expr<'a>(
+    expr: &'a ExprPrefix,
+    env: &mut Environment<'a>,
+) -> Result<Object<'a>, Error> {
     let right = eval_expr(&*expr.right, env)?;
 
     match expr.operator {
@@ -121,7 +134,7 @@ fn eval_prefix_expr(expr: &ExprPrefix, env: &mut Environment) -> Result<Object, 
     }
 }
 
-fn eval_if_expr(expr: &ExprIf, env: &mut Environment) -> Result<Object, Error> {
+fn eval_if_expr<'a>(expr: &'a ExprIf, env: &mut Environment<'a>) -> Result<Object<'a>, Error> {
     let condition = eval_expr(&*expr.condition, env)?;
 
     if condition.is_truthy() {
@@ -133,7 +146,7 @@ fn eval_if_expr(expr: &ExprIf, env: &mut Environment) -> Result<Object, Error> {
     }
 }
 
-fn eval_block(block: &Vec<Expr>, env: &mut Environment) -> Result<Object, Error> {
+fn eval_block<'a>(block: &'a Vec<Expr>, env: &mut Environment<'a>) -> Result<Object<'a>, Error> {
     let mut last = Object::Null;
     for expr in block {
         last = eval_expr(expr, env)?;
@@ -158,16 +171,19 @@ fn eval_string_expr(expr: &ExprString) -> Result<Object, Error> {
 }
 
 fn eval_function_expr(expr: &ExprFunction) -> Result<Object, Error> {
-    Ok(Object::Func(expr as *const ExprFunction))
+    Ok(Object::Func(expr))
 }
 
-fn eval_declare_expr(expr: &ExprDeclare, env: &mut Environment) -> Result<Object, Error> {
+fn eval_declare_expr<'a>(
+    expr: &'a ExprDeclare,
+    env: &mut Environment<'a>,
+) -> Result<Object<'a>, Error> {
     let value = eval_expr(&*expr.value, env)?;
     env.insert(&expr.name, value);
     Ok(Object::Null)
 }
 
-fn eval_call_expr(expr: &ExprCall, env: &mut Environment) -> Result<Object, Error> {
+fn eval_call_expr<'a>(expr: &'a ExprCall, env: &mut Environment<'a>) -> Result<Object<'a>, Error> {
     let function = match &*expr.func {
         Expr::Identifier(name) => env.resolve(&name),
         Expr::Function(expr) => eval_function_expr(expr)?,
@@ -175,8 +191,7 @@ fn eval_call_expr(expr: &ExprCall, env: &mut Environment) -> Result<Object, Erro
     };
 
     match function {
-        Object::Func(ptr) => {
-            let func = unsafe { &*(ptr as *const ExprFunction) };
+        Object::Func(func) => {
             if expr.arguments.len() != func.parameters.len() {
                 return Err(Error::TypeError(format!(
                     "{} takes exactly {} arguments ({} given)",
@@ -205,7 +220,7 @@ fn eval_call_expr(expr: &ExprCall, env: &mut Environment) -> Result<Object, Erro
     }
 }
 
-fn eval_expr(expr: &Expr, env: &mut Environment) -> Result<Object, Error> {
+fn eval_expr<'a>(expr: &'a Expr, env: &mut Environment<'a>) -> Result<Object<'a>, Error> {
     match expr {
         Expr::Infix(expr) => eval_infix_expr(expr, env),
         Expr::Prefix(expr) => eval_prefix_expr(expr, env),
@@ -236,6 +251,15 @@ mod tests {
     use test::Bencher;
     extern crate test;
 
+    fn assert_program_result(program: &str, result: Result<Object, Error>) {
+        let ast = match parser::parse(&program) {
+            Ok(ast) => ast,
+            Err(e) => return eprintln!("{:?}", e),
+        };
+
+        assert_eq!(eval_ast(&ast, None), result);
+    }
+
     #[test]
     fn test_int_arithmetic() {
         for (input, expected) in [
@@ -245,12 +269,7 @@ mod tests {
             ("6 / 2", Object::Int(3)),
             ("6 % 2", Object::Int(0)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -260,12 +279,7 @@ mod tests {
             ("6 + 2 * 5", Object::Int(16)),
             ("6 + 2 * 5 / 5", Object::Int(8)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -278,12 +292,7 @@ mod tests {
             ("6.5 / 2.0", Object::Float(3.25)),
             ("6.5 % 2.0", Object::Float(0.5)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -297,12 +306,7 @@ mod tests {
             ("6.5 / 2", Object::Float(3.25)),
             ("6.5 % 2", Object::Float(0.5)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -316,12 +320,7 @@ mod tests {
             ("1 == 1", Object::Bool(true)),
             ("1 != 1", Object::Bool(false)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -335,12 +334,7 @@ mod tests {
             ("1.5 == 1.5", Object::Bool(true)),
             ("1.5 != 1.5", Object::Bool(false)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -354,12 +348,7 @@ mod tests {
             ("ja == nee", Object::Bool(false)),
             ("ja != nee", Object::Bool(true)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -372,12 +361,7 @@ mod tests {
             ("!!ja", Object::Bool(true)),
             ("!!!ja", Object::Bool(false)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -397,12 +381,7 @@ mod tests {
             ("\"abc\" < \"xyz\"", Object::Bool(true)),
             ("\"abc\" <= \"xyz\"", Object::Bool(true)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -410,12 +389,7 @@ mod tests {
     fn test_multiple_expressions() {
         {
             let (input, expected) = ("5 + 5; 6 + 2", Object::Int(8));
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -427,12 +401,7 @@ mod tests {
             ("als 5 < 4 { 1 } anders { 2 }", Object::Int(2)),
             ("als (5 > 4) { 1 } anders { 2 }", Object::Int(1)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -440,12 +409,7 @@ mod tests {
     fn test_declare_statements() {
         {
             let (input, expected) = ("stel a = 100", Object::Null);
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -457,12 +421,7 @@ mod tests {
             ("stel a = 100; stel b = 2; a", Object::Int(100)),
             ("stel a = 100; stel b = 2; a * b", Object::Int(200)),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -475,12 +434,7 @@ mod tests {
                 Object::Int(2),
             ),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
     }
 
@@ -493,51 +447,7 @@ mod tests {
                 Object::Int(3),
             ),
         ] {
-            assert_eq!(
-                Ok(expected),
-                eval_program(input, None),
-                "eval input: {}",
-                input
-            );
+            assert_program_result(input, Ok(expected));
         }
-    }
-
-    #[test]
-    fn test_cmp_errors() {
-        for input in [
-            "5 > \"foo\"",
-            "5 >= \"foo\"",
-            "5 < \"foo\"",
-            "5 <= \"foo\"",
-            "\"foo\" > 5",
-            "\"foo\" >= 5",
-            "\"foo\" < 5",
-            "\"foo\" <= 5",
-        ] {
-            assert!(eval_program(input, None).is_err(), "eval input: {}", input);
-        }
-    }
-
-    #[bench]
-    fn bench_fib_recursive_22(b: &mut Bencher) {
-        b.iter(|| {
-            assert_eq!(
-                Ok(Object::Int(17711)),
-                eval_program(
-                    "
-                functie fib(n) {
-                    als n < 2 {
-                        n
-                    } anders {
-                        fib(n - 1) + fib(n - 2)
-                    }    
-                }
-                
-                fib(22)
-                ",
-                    None
-                ),
-            );
-        });
     }
 }

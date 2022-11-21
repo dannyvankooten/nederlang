@@ -6,7 +6,7 @@ mod lexer;
 mod object;
 mod parser;
 
-use eval::{eval_program, Environment};
+use eval::{eval_ast, Environment, Error};
 use std::{
     fs,
     io::{self, Write},
@@ -23,7 +23,12 @@ fn repl() {
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut buffer).unwrap();
 
-        match eval_program(&buffer, Some(&mut env)) {
+        let ast = match parser::parse(&buffer) {
+            Ok(ast) => ast,
+            Err(e) => return eprintln!("{:?}", e),
+        };
+
+        match eval_ast(&ast, None) {
             Ok(obj) => println!("{}", obj),
             Err(e) => println!("{:?}", e),
         }
@@ -32,7 +37,12 @@ fn repl() {
 
 fn file(f: &Path) {
     let program = fs::read_to_string(f).unwrap();
-    match eval_program(&program, None) {
+    let ast = match parser::parse(&program) {
+        Ok(ast) => ast,
+        Err(e) => return eprintln!("{:?}", e),
+    };
+
+    match eval_ast(&ast, None) {
         Ok(obj) => println!("{}", obj),
         Err(e) => println!("{:?}", e),
     }
