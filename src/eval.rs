@@ -4,47 +4,39 @@ use crate::ast::{
 };
 use crate::object::*;
 
-type Scope<'a> = Vec<(&'a str, Object)>;
-
 #[derive(Debug)]
 pub struct Environment<'a> {
-    scopes: Vec<Scope<'a>>,
+    names: Vec<&'a str>,
+    values: Vec<Object>
 }
 
 impl<'a> Environment<'a> {
     pub fn new() -> Self {
         Environment {
-            scopes: vec![Vec::new()],
+            names: Vec::with_capacity(64),
+            values: Vec::with_capacity(64)
         }
     }
 
-    #[inline(always)]
     pub(crate) fn resolve(&self, ident: &str) -> Object {
-        for scope in self.scopes.iter().rev() {
-            for (name, value) in scope {
-                if *name == ident {
-                    return *value;
-                }
-            }
+        if let Some(pos) = self.names.iter().rev().position(|name| *name == ident) {
+            return self.values[self.values.len() - 1 - pos];
         }
-
+        
         Object::null()
     }
 
     pub(crate) fn insert(&mut self, ident: &'a str, value: Object) {
-        let scope = self.scopes.last_mut().unwrap();
-        scope.push((ident, value));
+        self.names.push(ident);
+        self.values.push(value);
     }
 
     pub(crate) fn update(&mut self, ident: &str, new_value: Object) -> Result<(), Error> {
-        for scope in self.scopes.iter_mut().rev() {
-            for (name, value) in scope {
-                if *name == ident {
-                    *value = new_value;
-                    return Ok(());
-                }
-            }
+        if let Some(pos) = self.names.iter().rev().position(|name| *name == ident) {
+            self.values[pos] = new_value;
+            return Ok(());
         }
+       
 
         Err(Error::ReferenceError(format!(
             "assignment to undeclared variable {}",
@@ -52,6 +44,7 @@ impl<'a> Environment<'a> {
         )))
     }
 }
+
 
 pub(crate) fn eval_ast<'a>(
     root: &'a Vec<Expr>,
@@ -198,14 +191,18 @@ fn eval_call_expr<'a>(expr: &'a ExprCall, env: &mut Environment<'a>) -> Result<O
         )));
     }
 
-    let mut scope = Scope::with_capacity(func.parameters.len());
-    for (name, value_expr) in std::iter::zip(&func.parameters, &expr.arguments) {
+    let var_length = env.names.len();
+    for value_expr in &expr.arguments {
         let value = eval_expr(value_expr, env)?;
-        scope.push((name, value));
+        env.values.push(value);
     }
-    env.scopes.push(scope);
+    for name in &func.parameters {
+        env.names.push(name);
+    }
+
     let result = eval_block(&func.body, env);
-    env.scopes.pop();
+    env.names.truncate(var_length);
+    env.values.truncate(var_length);
     return result;
 }
 
