@@ -8,15 +8,9 @@ use crate::object::Error;
 use crate::object::Object;
 use crate::symbols::*;
 
-macro_rules! byte {
-    ($value:expr, $position:literal) => {
-        (($value >> (8 * $position)) & 0xff) as u8
-    };
-}
-
 macro_rules! read_u16_operand {
     ($instructions:expr, $ip:expr) => {
-        ($instructions[$ip + 1] as usize) | (($instructions[$ip + 2] as usize) << 8)
+        ($instructions[$ip + 1] as u16) | (($instructions[$ip + 2] as u16) << 8)
     };
 }
 
@@ -194,6 +188,16 @@ impl Compiler {
     }
 
     #[inline]
+    fn change_jump_operand_at(&mut self, idx: usize, v: u16) {
+        assert!(
+            self.instructions[idx] == OpCode::Jump as u8
+                || self.instructions[idx] == OpCode::JumpIfFalse as u8
+        );
+        self.instructions[idx + 1] = (v & 0xFF) as u8;
+        self.instructions[idx + 2] = ((v >> 8) & 0xFF) as u8;
+    }
+
+    #[inline]
     fn last_instruction_is(&self, op: OpCode) -> bool {
         self.last_instruction == Some(op)
     }
@@ -204,16 +208,6 @@ impl Compiler {
         debug_assert_eq!(self.last_instruction.unwrap().operands().len(), 0);
         self.instructions.pop();
         self.last_instruction = None;
-    }
-
-    fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
-        assert_eq!(self.instructions[pos], op as u8);
-        assert_eq!(op.operands().len(), 1);
-        assert_eq!(op.operands().first(), Some(&2));
-
-        // TODO: For opcodes with less than 2 operands, we need to account for it here.
-        self.instructions[pos + 1] = byte!(new_value, 0);
-        self.instructions[pos + 2] = byte!(new_value, 1);
     }
 
     fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
@@ -498,11 +492,9 @@ impl Compiler {
                 self.emit_opcode(OpCode::Jump);
                 self.emit_u16(JUMP_PLACEHOLDER);
 
-                // Change operand of last JumpIfFalse opcode to where we're currently at
-                self.change_instruction_operand_at(
-                    OpCode::JumpIfFalse,
+                self.change_jump_operand_at(
                     pos_jump_if_false,
-                    self.instructions.len(),
+                    self.instructions.len().try_into().unwrap(),
                 );
 
                 if let Some(alternative) = alternative {
@@ -515,7 +507,7 @@ impl Compiler {
                 }
 
                 // Change operand of last JumpIfFalse opcode to where we're currently at
-                self.change_instruction_operand_at(OpCode::Jump, pos_jump, self.instructions.len());
+                self.change_jump_operand_at(pos_jump, self.instructions.len().try_into().unwrap());
             }
             Expr::While { condition, body } => {
                 // TODO: Can we get rid of this now that empty block statement emit a NULL?
@@ -542,16 +534,15 @@ impl Compiler {
                 self.emit_u16(pos_before_condition.try_into().unwrap());
 
                 // Update jump statement for when initial condition evaluated to false (should skip over entire loop)
-                self.change_instruction_operand_at(
-                    OpCode::JumpIfFalse,
+                self.change_jump_operand_at(
                     pos_jump_if_false,
-                    self.instructions.len(),
+                    self.instructions.len().try_into().unwrap(),
                 );
 
                 // Update jump statements for every break statement inside this loop
                 let ctx = self.loop_contexts.pop().unwrap();
                 for ip in ctx.break_instructions {
-                    self.change_instruction_operand_at(OpCode::Jump, ip, self.instructions.len());
+                    self.change_jump_operand_at(ip, self.instructions.len().try_into().unwrap());
                 }
             }
             Expr::Function {
@@ -586,13 +577,16 @@ impl Compiler {
                     self.emit_opcode(OpCode::Return);
                 }
 
-                self.change_instruction_operand_at(OpCode::Jump, pos_jump, self.instructions.len());
+                self.change_jump_operand_at(pos_jump, self.instructions.len().try_into().unwrap());
 
                 // Switch back to previous scope again
                 let num_locals = self.symbols.leave_context();
 
                 // Create function object and store as constant
-                let obj = Object::function(pos_start_function.try_into().unwrap(), num_locals.try_into().unwrap());
+                let obj = Object::function(
+                    pos_start_function.try_into().unwrap(),
+                    num_locals.try_into().unwrap(),
+                );
                 let idx = self.add_constant(obj);
                 self.emit_opcode(OpCode::Const);
                 self.emit_u16(idx);
@@ -809,24 +803,6 @@ mod tests {
             "\nInput: \t{program}\nBytecode: \t{}",
             bytecode_to_human(&code.instructions, true)
         );
-    }
-
-    #[test]
-    fn test_byte_macro() {
-        assert_eq!(byte!(0, 0), 0);
-        assert_eq!(byte!(0, 1), 0);
-
-        assert_eq!(byte!(1, 0), 1);
-        assert_eq!(byte!(1, 1), 0);
-
-        assert_eq!(byte!(32, 0), 32);
-        assert_eq!(byte!(32, 1), 0);
-
-        assert_eq!(byte!(65535, 0), 255);
-        assert_eq!(byte!(65535, 1), 255);
-
-        assert_eq!(byte!(255, 0), 255);
-        assert_eq!(byte!(255, 1), 0);
     }
 
     #[test]
