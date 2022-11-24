@@ -36,9 +36,6 @@ fn run_file(f: &Path) {
 }
 
 fn main() -> io::Result<()> {
-    #[cfg(feature = "debug")]
-    println!("Size of NlObject: {} bytes", size_of::<NlObject>());
-
     let file = args().skip(1).find(|a| !a.starts_with("--"));
     if let Some(file) = file {
         let path = Path::new(&file);
