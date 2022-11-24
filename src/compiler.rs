@@ -70,8 +70,7 @@ pub(crate) enum OpCode {
     Halt,
 }
 
-const IP_PLACEHOLDER: usize = 99999;
-const JUMP_PLACEHOLDER_BREAK: usize = 9999 + 1;
+const JUMP_PLACEHOLDER: u16 = 1337;
 
 impl From<u8> for OpCode {
     #[inline(always)]
@@ -104,11 +103,9 @@ impl OpCode {
             OpCode::CallBuiltin => &[1, 1],
 
             // OpCodes with 1 operand op 1 byte:
-            OpCode::Call
-            | OpCode::SetLocal
-            | OpCode::GetGlobal
-            | OpCode::SetGlobal
-            | OpCode::GetLocal => &[1],
+            OpCode::Call => &[1],
+
+            OpCode::SetLocal | OpCode::GetGlobal | OpCode::SetGlobal | OpCode::GetLocal => &[2],
 
             // OpCodes with no operands
             OpCode::Pop
@@ -179,54 +176,26 @@ impl Compiler {
         }
     }
 
-    /// Emit the given OpCode with the given operands to the bytecode vector
-    fn add_instruction(&mut self, op: OpCode, operands: &[usize]) -> usize {
-        let bytecode = &mut self.instructions;
-        let pos = bytecode.len();
-
-        // push OpCode itself
-        bytecode.push(op as u8);
-
-        debug_assert_eq!(operands.len(), op.operands().len());
-
-        for (value, width) in std::iter::zip(operands, op.operands()) {
-            match width {
-                // operand with a 2-byte width (2^16 max value)
-                2 => {
-                    bytecode.push(byte!(value, 0));
-                    bytecode.push(byte!(value, 1));
-                }
-                // operand with a 1-byte-width
-                1 => {
-                    bytecode.push(byte!(value, 0));
-                }
-
-                // this should never be possible
-                _ => panic!(
-                    "attempted to write 0-width operand with value {value:?} for operator {op:?}"
-                ),
-            }
-        }
-
-        // store last instruction so we can match on it
+    #[inline]
+    fn emit_opcode(&mut self, op: OpCode) {
+        self.instructions.push(op as u8);
         self.last_instruction = Some(op);
+    }
 
-        pos
+    #[inline]
+    fn emit_u8(&mut self, v: u8) {
+        self.instructions.push(v)
+    }
+
+    #[inline]
+    fn emit_u16(&mut self, v: u16) {
+        self.instructions.push((v & 0xFF) as u8);
+        self.instructions.push(((v >> 8) & 0xFF) as u8);
     }
 
     #[inline]
     fn last_instruction_is(&self, op: OpCode) -> bool {
         self.last_instruction == Some(op)
-    }
-
-    /// Replace the last instruction with the given opcode
-    /// Note that this currently only works with OpCodes that do not take any operand values
-    #[inline]
-    fn replace_last_instruction(&mut self, op: OpCode) {
-        debug_assert_eq!(op.operands().len(), 0);
-        let idx = self.instructions.len() - 1;
-        self.instructions[idx] = op as u8;
-        self.last_instruction = Some(op);
     }
 
     #[inline]
@@ -235,13 +204,6 @@ impl Compiler {
         debug_assert_eq!(self.last_instruction.unwrap().operands().len(), 0);
         self.instructions.pop();
         self.last_instruction = None;
-    }
-
-    #[inline]
-    fn remove_last_instruction_if(&mut self, op: OpCode) {
-        if self.last_instruction_is(op) {
-            self.remove_last_instruction();
-        }
     }
 
     fn change_instruction_operand_at(&mut self, op: OpCode, pos: usize, new_value: usize) {
@@ -258,7 +220,7 @@ impl Compiler {
         // if block statement does not contain any other statements or expressions
         // simply push a NULL onto the stack
         if stmts.len() == 0 {
-            self.add_instruction(OpCode::Null, &[]);
+            self.emit_opcode(OpCode::Null);
             return Ok(());
         }
 
@@ -274,47 +236,47 @@ impl Compiler {
         match stmt {
             Stmt::Expr(expr) => {
                 self.compile_expression(&expr)?;
-                self.add_instruction(OpCode::Pop, &[]);
+                self.emit_opcode(OpCode::Pop);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
                 let symbol = self.symbols.define(&name);
                 self.compile_expression(&value)?;
-
-                if symbol.scope == Scope::Global {
-                    self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
+                let op = if symbol.scope == Scope::Global {
+                    OpCode::SetGlobal
                 } else {
-                    self.add_instruction(OpCode::SetLocal, &[symbol.index]);
-                }
+                    OpCode::SetLocal
+                };
+                self.emit_opcode(op);
+                self.emit_u16(symbol.index);
             }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
                 self.compile_expression(&expr)?;
-                self.add_instruction(OpCode::ReturnValue, &[]);
+                self.emit_opcode(OpCode::ReturnValue);
             }
             Stmt::Break => {
-                self.add_instruction(OpCode::Null, &[]);
-                let ip = self.add_instruction(OpCode::Jump, &[JUMP_PLACEHOLDER_BREAK]);
-
+                self.emit_opcode(OpCode::Null);
+                let pos = self.instructions.len();
+                self.emit_opcode(OpCode::Jump);
+                self.emit_u16(JUMP_PLACEHOLDER);
                 let ctx = match self.loop_contexts.last_mut() {
                     Some(ctx) => ctx,
                     None => return Err(Error::SyntaxError(format!("foutief gebruik van 'stop'"))),
                 };
-                ctx.break_instructions.push(ip);
+                ctx.break_instructions.push(pos);
             }
             Stmt::Continue => {
-                self.add_instruction(OpCode::Null, &[]);
+                self.emit_opcode(OpCode::Null);
 
-                match self.loop_contexts.iter().last() {
-                    Some(ctx) => {
-                        self.add_instruction(OpCode::Jump, &[ctx.start]);
-                    }
-                    None => {
-                        return Err(Error::SyntaxError(format!(
-                            "foutief gebruik van 'volgende'"
-                        )))
-                    }
-                }
+                let pos = match self.loop_contexts.iter().last() {
+                    Some(ctx) => Ok(ctx.start),
+                    None => Err(Error::SyntaxError(format!(
+                        "foutief gebruik van 'volgende'"
+                    ))),
+                }?;
+                self.emit_opcode(OpCode::Jump);
+                self.emit_u16(pos.try_into().unwrap());
             }
         }
 
@@ -338,9 +300,9 @@ impl Compiler {
             Operator::Negate => OpCode::Negate,
             Operator::And => OpCode::And,
             Operator::Or => OpCode::Or,
-            _ => unimplemented!("Operators of type {operator:?} not yet implemented."),
+            _ => panic!("unexpected operator of type {operator:?}"),
         };
-        self.add_instruction(opcode, &[]);
+        self.emit_opcode(opcode);
     }
 
     fn compile_const_var_infix_expression(
@@ -353,7 +315,7 @@ impl Compiler {
         let symbol = self.symbols.resolve(varname);
         match symbol {
             Some(symbol) => {
-                let op = match (operator, symbol.scope) {
+                let opcode = match (operator, symbol.scope) {
                     (Operator::Add, Scope::Local) => OpCode::AddLocalConst,
                     (Operator::Subtract, Scope::Local) => OpCode::SubtractLocalConst,
                     (Operator::Lt, Scope::Local) => OpCode::LtLocalConst,
@@ -373,7 +335,9 @@ impl Compiler {
                     }
                 };
 
-                self.add_instruction(op, &[symbol.index, idx_constant]);
+                self.emit_opcode(opcode);
+                self.emit_u16(symbol.index);
+                self.emit_u16(idx_constant);
             }
             None => {
                 return Err(Error::ReferenceError(format!(
@@ -388,35 +352,37 @@ impl Compiler {
     fn compile_expression(&mut self, expr: &Expr) -> Result<(), Error> {
         match expr {
             Expr::Bool { value } => {
-                if *value {
-                    self.add_instruction(OpCode::True, &[]);
-                } else {
-                    self.add_instruction(OpCode::False, &[]);
-                }
+                let opcode = if *value { OpCode::True } else { OpCode::False };
+                self.emit_opcode(opcode);
             }
             Expr::Float { value } => {
                 let obj = Object::float(*value, &mut self.gc);
                 let idx = self.add_constant(obj);
-                self.add_instruction(OpCode::Const, &[idx]);
+                self.emit_opcode(OpCode::Const);
+                self.emit_u16(idx);
             }
             Expr::Int { value } => {
                 let idx = self.add_constant(Object::int(*value));
-                self.add_instruction(OpCode::Const, &[idx]);
+                self.emit_opcode(OpCode::Const);
+                self.emit_u16(idx);
             }
             Expr::String { value } => {
                 let obj = Object::string(&value, &mut self.gc);
                 let idx = self.add_constant(obj);
-                self.add_instruction(OpCode::Const, &[idx]);
+                self.emit_opcode(OpCode::Const);
+                self.emit_u16(idx);
             }
             Expr::Identifier(name) => {
                 let symbol = self.symbols.resolve(&name);
                 match symbol {
                     Some(symbol) => {
-                        if symbol.scope == Scope::Global {
-                            self.add_instruction(OpCode::GetGlobal, &[symbol.index]);
+                        let opcode = if symbol.scope == Scope::Global {
+                            OpCode::GetGlobal
                         } else {
-                            self.add_instruction(OpCode::GetLocal, &[symbol.index]);
-                        }
+                            OpCode::GetLocal
+                        };
+                        self.emit_opcode(opcode);
+                        self.emit_u16(symbol.index);
                     }
                     None => {
                         return Err(Error::ReferenceError(format!(
@@ -430,10 +396,10 @@ impl Compiler {
 
                 match operator {
                     Operator::Negate | Operator::Subtract => {
-                        self.add_instruction(OpCode::Negate, &[]);
+                        self.emit_opcode(OpCode::Negate);
                     }
                     Operator::Not => {
-                        self.add_instruction(OpCode::Not, &[]);
+                        self.emit_opcode(OpCode::Not);
                     }
 
                     _ => {
@@ -451,7 +417,7 @@ impl Compiler {
                         self.compile_expression(&*left)?;
                         self.compile_expression(&*index)?;
                         self.compile_expression(&*right)?;
-                        self.add_instruction(OpCode::IndexSet, &[]);
+                        self.emit_opcode(OpCode::IndexSet);
                         return Ok(());
                     }
                     _ => {
@@ -467,13 +433,20 @@ impl Compiler {
                     Some(symbol) => {
                         self.compile_expression(&*right)?;
 
-                        if symbol.scope == Scope::Global {
-                            // TODO: Create superinstruction for this?
-                            self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
-                            self.add_instruction(OpCode::GetGlobal, &[symbol.index]);
-                        } else {
-                            self.add_instruction(OpCode::SetLocal, &[symbol.index]);
-                            self.add_instruction(OpCode::GetLocal, &[symbol.index]);
+                        match symbol.scope {
+                            Scope::Global => {
+                                self.emit_opcode(OpCode::SetGlobal);
+                                self.emit_u16(symbol.index);
+                                self.emit_opcode(OpCode::GetGlobal);
+                                self.emit_u16(symbol.index);
+                            }
+
+                            Scope::Local => {
+                                self.emit_opcode(OpCode::SetLocal);
+                                self.emit_u16(symbol.index);
+                                self.emit_opcode(OpCode::GetLocal);
+                                self.emit_u16(symbol.index);
+                            }
                         }
                     }
                     None => {
@@ -511,56 +484,62 @@ impl Compiler {
                 alternative,
             } => {
                 self.compile_expression(&*condition)?;
-                let pos_jump_before_consequence =
-                    self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
+                let pos_jump_if_false = self.instructions.len();
+                self.emit_opcode(OpCode::JumpIfFalse);
+                self.emit_u16(JUMP_PLACEHOLDER);
 
                 self.compile_block_statement(consequence)?;
-                self.remove_last_instruction_if(OpCode::Pop);
 
-                let pos_jump_after_consequence =
-                    self.add_instruction(OpCode::Jump, &[IP_PLACEHOLDER]);
+                if self.last_instruction_is(OpCode::Pop) {
+                    self.remove_last_instruction();
+                }
+
+                let pos_jump = self.instructions.len();
+                self.emit_opcode(OpCode::Jump);
+                self.emit_u16(JUMP_PLACEHOLDER);
 
                 // Change operand of last JumpIfFalse opcode to where we're currently at
                 self.change_instruction_operand_at(
                     OpCode::JumpIfFalse,
-                    pos_jump_before_consequence,
+                    pos_jump_if_false,
                     self.instructions.len(),
                 );
 
                 if let Some(alternative) = alternative {
                     self.compile_block_statement(alternative)?;
-                    self.remove_last_instruction_if(OpCode::Pop);
+                    if self.last_instruction_is(OpCode::Pop) {
+                        self.remove_last_instruction();
+                    }
                 } else {
-                    self.add_instruction(OpCode::Null, &[]);
+                    self.emit_opcode(OpCode::Null);
                 }
 
                 // Change operand of last JumpIfFalse opcode to where we're currently at
-                self.change_instruction_operand_at(
-                    OpCode::Jump,
-                    pos_jump_after_consequence,
-                    self.instructions.len(),
-                );
+                self.change_instruction_operand_at(OpCode::Jump, pos_jump, self.instructions.len());
             }
             Expr::While { condition, body } => {
                 // TODO: Can we get rid of this now that empty block statement emit a NULL?
-                self.add_instruction(OpCode::Null, &[]);
+                self.emit_opcode(OpCode::Null);
                 self.loop_contexts
                     .push(LoopContext::new(self.instructions.len()));
                 let pos_before_condition = self.instructions.len();
                 self.compile_expression(&*condition)?;
 
-                let pos_jump_if_false =
-                    self.add_instruction(OpCode::JumpIfFalse, &[IP_PLACEHOLDER]);
-                self.add_instruction(OpCode::Pop, &[]);
+                let pos_jump_if_false = self.instructions.len();
+                self.emit_opcode(OpCode::JumpIfFalse);
+                self.emit_u16(JUMP_PLACEHOLDER);
+                self.emit_opcode(OpCode::Pop);
                 self.compile_block_statement(body)?;
 
                 if self.last_instruction_is(OpCode::Pop) {
                     self.remove_last_instruction();
                 } else {
-                    self.add_instruction(OpCode::Null, &[]);
+                    self.emit_opcode(OpCode::Null);
                 }
 
-                self.add_instruction(OpCode::Jump, &[pos_before_condition]);
+                // emit jump instruction to loop condition
+                self.emit_opcode(OpCode::Jump);
+                self.emit_u16(pos_before_condition.try_into().unwrap());
 
                 // Update jump statement for when initial condition evaluated to false (should skip over entire loop)
                 self.change_instruction_operand_at(
@@ -585,7 +564,10 @@ impl Compiler {
                 } else {
                     None
                 };
-                let jump_over_fn = self.add_instruction(OpCode::Jump, &[IP_PLACEHOLDER]);
+
+                let pos_jump = self.instructions.len();
+                self.emit_opcode(OpCode::Jump);
+                self.emit_u16(JUMP_PLACEHOLDER);
 
                 // Compile function in a new scope
                 self.symbols.new_context();
@@ -598,33 +580,35 @@ impl Compiler {
                 self.compile_block_statement(body)?;
 
                 if self.last_instruction_is(OpCode::Pop) {
-                    self.replace_last_instruction(OpCode::ReturnValue);
+                    self.remove_last_instruction();
+                    self.emit_opcode(OpCode::ReturnValue);
                 } else if !self.last_instruction_is(OpCode::ReturnValue) {
-                    self.add_instruction(OpCode::Return, &[]);
+                    self.emit_opcode(OpCode::Return);
                 }
 
-                self.change_instruction_operand_at(
-                    OpCode::Jump,
-                    jump_over_fn,
-                    self.instructions.len(),
-                );
+                self.change_instruction_operand_at(OpCode::Jump, pos_jump, self.instructions.len());
 
                 // Switch back to previous scope again
-                let num_locals = self.symbols.leave_context() as u16;
+                let num_locals = self.symbols.leave_context();
 
                 // Create function object and store as constant
-                let obj = Object::function(pos_start_function as u32, num_locals);
+                let obj = Object::function(pos_start_function.try_into().unwrap(), num_locals.try_into().unwrap());
                 let idx = self.add_constant(obj);
-                self.add_instruction(OpCode::Const, &[idx]);
+                self.emit_opcode(OpCode::Const);
+                self.emit_u16(idx);
 
                 // If this function received a name, define it in the scope
                 if let Some(symbol) = symbol {
-                    if symbol.scope == Scope::Global {
-                        self.add_instruction(OpCode::SetGlobal, &[symbol.index]);
+                    let opcode = if symbol.scope == Scope::Global {
+                        OpCode::SetGlobal
                     } else {
-                        self.add_instruction(OpCode::SetLocal, &[symbol.index]);
-                    }
-                    self.add_instruction(OpCode::Const, &[idx]);
+                        OpCode::SetLocal
+                    };
+                    self.emit_opcode(opcode);
+                    self.emit_u16(symbol.index);
+
+                    self.emit_opcode(OpCode::Const);
+                    self.emit_u16(idx);
                 }
             }
             Expr::Call { left, arguments } => 'compile_call: {
@@ -634,49 +618,48 @@ impl Compiler {
 
                 if let Expr::Identifier(name) = &**left {
                     if let Some(builtin) = builtins::resolve(name) {
-                        self.add_instruction(
-                            OpCode::CallBuiltin,
-                            &[builtin as usize, arguments.len()],
-                        );
+                        self.emit_opcode(OpCode::CallBuiltin);
+                        self.emit_u8(builtin as u8);
+                        self.emit_u8(arguments.len().try_into().unwrap());
                         break 'compile_call;
                     }
                 }
                 self.compile_expression(&*left)?;
-                self.add_instruction(OpCode::Call, &[arguments.len()]);
+                self.emit_opcode(OpCode::Call);
+                self.emit_u8(arguments.len().try_into().unwrap());
             }
 
             Expr::Array { values } => {
                 for v in values {
                     self.compile_expression(v)?;
                 }
-                self.add_instruction(OpCode::Array, &[values.len()]);
+                self.emit_opcode(OpCode::Array);
+                self.emit_u16(values.len().try_into().unwrap());
             }
 
             Expr::Index { left, index } => {
                 self.compile_expression(&*left)?;
                 self.compile_expression(&*index)?;
-                self.add_instruction(OpCode::IndexGet, &[]);
+                self.emit_opcode(OpCode::IndexGet);
             }
-
-            _ => unimplemented!("kan expressies van type {expr:?} nog niet compileren"),
         }
 
         Ok(())
     }
 
-    fn add_constant(&mut self, obj: Object) -> usize {
+    fn add_constant(&mut self, obj: Object) -> u16 {
         // re-use already defined constants
         if let Some(pos) = self
             .constants
             .iter()
             .position(|c| c.tag() == obj.tag() && c == &obj)
         {
-            return pos;
+            return pos.try_into().unwrap();
         }
 
         let idx = self.constants.len();
         self.constants.push(obj);
-        idx
+        idx.try_into().unwrap()
     }
 }
 
@@ -691,7 +674,7 @@ impl Program {
         let mut compiler = Compiler::new();
 
         compiler.compile_block_statement(&ast)?;
-        compiler.add_instruction(OpCode::Halt, &[]);
+        compiler.emit_opcode(OpCode::Halt);
 
         // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
         let mut instructions = compiler.instructions;
@@ -712,53 +695,55 @@ impl Program {
 /// We use a string representation of OpCodes to make testing a little easier
 impl Display for OpCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            OpCode::Const => f.write_str("Const"),
-            OpCode::Pop => f.write_str("Pop"),
-            OpCode::True => f.write_str("True"),
-            OpCode::False => f.write_str("False"),
-            OpCode::Add => f.write_str("Add"),
-            OpCode::Subtract => f.write_str("Subtract"),
-            OpCode::Divide => f.write_str("Divide"),
-            OpCode::Multiply => f.write_str("Multiply"),
-            OpCode::Gt => f.write_str("Gt"),
-            OpCode::Gte => f.write_str("Gte"),
-            OpCode::Lt => f.write_str("Lt"),
-            OpCode::Lte => f.write_str("Lte"),
-            OpCode::Eq => f.write_str("Eq"),
-            OpCode::Neq => f.write_str("Neq"),
-            OpCode::And => f.write_str("And"),
-            OpCode::Or => f.write_str("Or"),
-            OpCode::Not => f.write_str("Not"),
-            OpCode::Modulo => f.write_str("Modulo"),
-            OpCode::Negate => f.write_str("Negate"),
-            OpCode::Jump => f.write_str("Jump"),
-            OpCode::JumpIfFalse => f.write_str("JumpIfFalse"),
-            OpCode::Null => f.write_str("Null"),
-            OpCode::Return => f.write_str("Return"),
-            OpCode::ReturnValue => f.write_str("ReturnValue"),
-            OpCode::Call => f.write_str("Call"),
-            OpCode::CallBuiltin => f.write_str("CallBuiltin"),
-            OpCode::GetLocal => f.write_str("GetLocal"),
-            OpCode::SetLocal => f.write_str("SetLocal"),
-            OpCode::GetGlobal => f.write_str("GetGlobal"),
-            OpCode::SetGlobal => f.write_str("SetGlobal"),
-            OpCode::GtLocalConst => f.write_str("GtLocalConst"),
-            OpCode::GteLocalConst => f.write_str("GteLocalConst"),
-            OpCode::LtLocalConst => f.write_str("LtLocalConst"),
-            OpCode::LteLocalConst => f.write_str("LteLocalConst"),
-            OpCode::EqLocalConst => f.write_str("EqLocalConst"),
-            OpCode::NeqLocalConst => f.write_str("NeqLocalConst"),
-            OpCode::AddLocalConst => f.write_str("AddLocalConst"),
-            OpCode::SubtractLocalConst => f.write_str("SubtractLocalConst"),
-            OpCode::MultiplyLocalConst => f.write_str("MultiplyLocalConst"),
-            OpCode::DivideLocalConst => f.write_str("DivideLocalConst"),
-            OpCode::ModuloLocalConst => f.write_str("ModuloLocalConst"),
-            OpCode::Array => f.write_str("Array"),
-            OpCode::IndexGet => f.write_str("IndexGet"),
-            OpCode::IndexSet => f.write_str("IndexSet"),
-            OpCode::Halt => f.write_str("Halt"),
-        }
+        use OpCode::*;
+        let s = match &self {
+            Const => "Const",
+            Pop => "Pop",
+            True => "True",
+            False => "False",
+            Add => "Add",
+            Subtract => "Subtract",
+            Divide => "Divide",
+            Multiply => "Multiply",
+            Gt => "Gt",
+            Gte => "Gte",
+            Lt => "Lt",
+            Lte => "Lte",
+            Eq => "Eq",
+            Neq => "Neq",
+            And => "And",
+            Or => "Or",
+            Not => "Not",
+            Modulo => "Modulo",
+            Negate => "Negate",
+            Jump => "Jump",
+            JumpIfFalse => "JumpIfFalse",
+            Null => "Null",
+            Return => "Return",
+            ReturnValue => "ReturnValue",
+            Call => "Call",
+            CallBuiltin => "CallBuiltin",
+            GetLocal => "GetLocal",
+            SetLocal => "SetLocal",
+            GetGlobal => "GetGlobal",
+            SetGlobal => "SetGlobal",
+            GtLocalConst => "GtLocalConst",
+            GteLocalConst => "GteLocalConst",
+            LtLocalConst => "LtLocalConst",
+            LteLocalConst => "LteLocalConst",
+            EqLocalConst => "EqLocalConst",
+            NeqLocalConst => "NeqLocalConst",
+            AddLocalConst => "AddLocalConst",
+            SubtractLocalConst => "SubtractLocalConst",
+            MultiplyLocalConst => "MultiplyLocalConst",
+            DivideLocalConst => "DivideLocalConst",
+            ModuloLocalConst => "ModuloLocalConst",
+            Array => "Array",
+            IndexGet => "IndexGet",
+            IndexSet => "IndexSet",
+            Halt => "Halt",
+        };
+        f.write_str(s)
     }
 }
 

@@ -8,7 +8,7 @@ pub struct SymbolTable {
 
 pub struct Symbol {
     pub scope: Scope,
-    pub index: usize,
+    pub index: u16,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -52,7 +52,7 @@ impl Context {
         self.max_size += 1;
 
         Symbol {
-            index: self.total_len() - 1,
+            index: (self.total_len() - 1).try_into().unwrap(),
             scope: self.scope,
         }
     }
@@ -64,7 +64,7 @@ impl Context {
             abs_index -= scope.len();
             if let Some(index) = scope.iter().position(|n| n == name) {
                 return Some(Symbol {
-                    index: abs_index + index,
+                    index: (abs_index + index).try_into().unwrap(),
                     scope: self.scope,
                 });
             }

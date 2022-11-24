@@ -165,30 +165,30 @@ fn run(program: Program) -> Result<Object, Error> {
                 frame.ip += 3;
             }
             OpCode::SetGlobal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
+                let idx = read_u16_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
                 while globals.len() <= idx {
                     globals.push(Object::null());
                 }
                 globals[idx] = value;
-                frame.ip += 2;
+                frame.ip += 3;
             }
             OpCode::GetGlobal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
+                let idx = read_u16_operand!(instructions, frame.ip);
                 stack.push(globals[idx]);
-                frame.ip += 2;
+                frame.ip += 3;
             }
             OpCode::SetLocal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
+                let idx = read_u16_operand!(instructions, frame.ip);
                 let value = pop(&mut stack);
                 stack[frame.base_pointer + idx] = value;
-                frame.ip += 2;
+                frame.ip += 3;
             }
             OpCode::GetLocal => {
-                let idx = read_u8_operand!(instructions, frame.ip);
+                let idx = read_u16_operand!(instructions, frame.ip);
                 debug_assert!(stack.len() > frame.base_pointer + idx);
                 stack.push(unsafe { *stack.get_unchecked(frame.base_pointer + idx) });
-                frame.ip += 2;
+                frame.ip += 3;
             }
             // TODO: Make JUMP* opcodes relative
             OpCode::Jump => {
