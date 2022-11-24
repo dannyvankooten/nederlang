@@ -59,7 +59,7 @@ pub enum Type {
 }
 
 // Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, int)
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct Object(*mut u8);
 unsafe impl Sync for Object {}
 unsafe impl Send for Object {}
@@ -450,17 +450,24 @@ impl Display for Object {
             Type::Array => {
                 let values = unsafe { self.as_vec_unchecked() };
                 f.write_char('[')?;
-                for (i, p) in values.iter().enumerate() {
+                for (i, obj) in values.iter().enumerate() {
                     if i > 0 {
                         f.write_str(", ")?;
                     }
-                    p.fmt(f)?;
+                    std::fmt::Display::fmt(&obj, f)?;
                 }
                 f.write_char(']')?;
             }
             Type::Function => f.write_str("functie")?,
         }
         Ok(())
+    }
+}
+
+use std::fmt::Debug;
+impl Debug for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
     }
 }
 

@@ -11,48 +11,18 @@ use std::ptr;
 #[cfg(feature = "debug")]
 use crate::compiler::bytecode_to_human;
 
-macro_rules! read_u8_operand {
-    ($instructions:expr, $ip:expr) => {
-        unsafe { *$instructions.get_unchecked($ip + 1) as usize }
-    };
-}
-
-macro_rules! read_u16_operand {
-    ($instructions:expr, $ip:expr) => {
-        unsafe {
-            (*$instructions.get_unchecked($ip + 1) as u16
-                | (*$instructions.get_unchecked($ip + 2) as u16) << 8) as usize
-        }
-    };
-}
-
 struct Frame {
     /// Index of the current instruction
     ip: usize,
 
     /// Pointer to the index of the stack before function call started
     /// This is where the VM returns its stack to after the function returns
-    base_pointer: usize,
-}
-
-/// Vec::pop, but without checking if it's empty first.
-/// This yields a ~25% performance improvement.
-/// As an aside, removing any of the other bound check related to working with the stack does not seen to yield significant performance improvements.
-#[inline(always)]
-fn pop(slice: &mut Vec<Object>) -> Object {
-    debug_assert!(!slice.is_empty());
-
-    // Safety: slice is never empty, opcodes that push items on the stack always come before anything that pops
-    unsafe {
-        let new_len = slice.len() - 1;
-        slice.set_len(new_len);
-        ptr::read(slice.as_ptr().add(new_len))
-    }
+    base_pointer: u16,
 }
 
 impl Frame {
     #[inline(always)]
-    fn new(ip: usize, base_pointer: usize) -> Self {
+    fn new(ip: usize, base_pointer: u16) -> Self {
         Frame { ip, base_pointer }
     }
 }
@@ -61,6 +31,121 @@ pub fn run_str(program: &str) -> Result<Object, Error> {
     let ast = parse(program)?;
     let program = Program::new(ast)?;
     run(program)
+}
+
+struct VM {
+    stack: Vec<Object>,
+    globals: Vec<Object>,
+    frames: Vec<Frame>,
+    instructions: Vec<u8>,
+    ip: usize,
+    bp: u16,
+}
+
+impl VM {
+    fn new(instructions: Vec<u8>) -> Self {
+        let mut frames = Vec::with_capacity(32);
+        frames.push(Frame::new(0, 0));
+
+        Self {
+            stack: Vec::with_capacity(32),
+            globals: Vec::with_capacity(8),
+            frames,
+            instructions,
+            ip: 0,
+            bp: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn get_local(&self, rel_idx: u16) -> Object {
+        self.stack[self.bp as usize + rel_idx as usize]
+    }
+
+    #[inline(always)]
+    fn set_local(&mut self, rel_idx: u16, value: Object) {
+        self.stack[self.bp as usize + rel_idx as usize] = value;
+    }
+
+    /// Reads a u16 value from the current position in the instructions array
+    #[inline(always)]
+    fn read_u8(&mut self) -> u8 {
+        let v = unsafe { *self.instructions.get_unchecked(self.ip) };
+        self.ip += 1;
+        v
+    }
+
+    /// Reads a u16 value from the current position in the instructions array
+    #[inline(always)]
+    fn read_u16(&mut self) -> u16 {
+        let v = unsafe {
+            (*self.instructions.get_unchecked(self.ip) as u16)
+                | (*self.instructions.get_unchecked(self.ip + 1) as u16) << 8
+        };
+        self.ip += 2;
+        v
+    }
+
+    /// Sets the instruction pointer to the given value
+    #[inline]
+    fn jump(&mut self, ip: u16) {
+        self.ip = ip as usize;
+    }
+
+    /// Reads the next OpCode from the instructions vector
+    /// This function still accounts for 25-35% of runtime right now...
+    #[inline(always)]
+    fn next(&mut self) -> OpCode {
+        let byte = unsafe { self.instructions.get_unchecked(self.ip) };
+        self.ip += 1;
+        OpCode::from(*byte)
+    }
+
+    /// Vec::pop, but without checking if it's empty first.
+    /// This yields a ~25% performance improvement over a regular `Vec::pop()` call
+    #[inline(always)]
+    fn pop(&mut self) -> Object {
+        debug_assert!(self.stack.is_empty() == false);
+
+        // Safety: if the compiler and VM are implemented correctly, the stack will never be empty
+        unsafe {
+            let new_len = self.stack.len() - 1;
+            self.stack.set_len(new_len);
+            ptr::read(self.stack.as_ptr().add(new_len))
+        }
+    }
+
+    #[inline(always)]
+    fn push(&mut self, obj: Object) {
+        self.stack.push(obj)
+    }
+
+    #[inline(always)]
+    fn popframe(&mut self) {
+        // pop frame and return stack to frame's base pointer
+        let frame = self.frames.pop().unwrap();
+        self.stack.truncate(frame.base_pointer as usize);
+
+        // copy base pointer and instruction pointer out of new current frame
+        // this yields an enormous performance improvement
+        let frame = self.frames.last().unwrap();
+        self.ip = frame.ip;
+        self.bp = frame.base_pointer;
+    }
+
+    #[inline(always)]
+    fn pushframe(&mut self, ip: u32, base_pointer: u16) {
+        // store current IP into the frame that we're leaving
+        // so we can return to it later
+        let frame = self.frames.last_mut().unwrap();
+        frame.ip = self.ip;
+
+        // push new frame and copy over IP and BP
+        // this somehow yields an enormous performance improvent
+        self.frames.push(Frame::new(ip as usize, base_pointer));
+        self.ip = ip as usize;
+        self.bp = base_pointer;
+    }
 }
 
 fn run(program: Program) -> Result<Object, Error> {
@@ -79,38 +164,27 @@ fn run(program: Program) -> Result<Object, Error> {
     let constants = program.constants;
     let mut gc = program.gc;
 
-    // Init stack, globals, frames & tmp value to store final program result
-    let mut stack = Vec::with_capacity(32);
-    let mut globals = Vec::with_capacity(8);
-    let mut frames = Vec::with_capacity(32);
+    let mut vm = VM::new(instructions);
     let mut final_result = Object::null();
-
-    // Push main frame onto the call stack
-    frames.push(Frame::new(0, 0));
-    let mut frame = frames.last_mut().unwrap();
 
     macro_rules! impl_binary_op_method {
         ($op:tt) => {{
-            let right = pop(&mut stack);
-            let left = pop(&mut stack);
+            let right = vm.pop();
+            let left = vm.pop();
             let result = left.$op(right, &mut gc)?;
-            stack.push(result);
-            frame.ip += 1;
+            vm.push(result);
         }};
     }
 
     macro_rules! impl_binary_const_local_op_method {
         ($op:tt) => {{
-            let left = stack[frame.base_pointer + read_u16_operand!(instructions, frame.ip)];
-            let right = constants[read_u16_operand!(instructions, frame.ip + 2)];
+            let local_idx = vm.read_u16();
+            let left = vm.get_local(local_idx);
+            let constant_idx = vm.read_u16();
+            let right = constants[constant_idx as usize];
             let result = left.$op(right, &mut gc)?;
-            stack.push(result);
-            frame.ip += 5;
+            vm.push(result);
         }};
-    }
-
-    if instructions.is_empty() {
-        return Ok(final_result);
     }
 
     #[cfg(feature = "debug")]
@@ -126,20 +200,20 @@ fn run(program: Program) -> Result<Object, Error> {
             println!(
                 "{:16}= {}/{}: {}",
                 "Instruction",
-                frame.ip,
-                instructions.len(),
-                bytecode_to_human(&instructions[frame.ip..], false)
+                vm.frame().ip,
+                vm.instructions.len(),
+                bytecode_to_human(&vm.instructions[vm.frame().ip..], false)
                     .split(" ")
                     .next()
                     .unwrap()
             );
             print!("{:16}= [", "Globals");
-            for (i, v) in globals.iter().enumerate() {
+            for (i, v) in vm.globals.iter().enumerate() {
                 print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
             }
             println!("]");
             print!("{:16}= [", "Stack");
-            for (i, v) in stack.iter().enumerate() {
+            for (i, v) in vm.stack.iter().enumerate() {
                 print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
             }
             println!("]");
@@ -156,74 +230,65 @@ fn run(program: Program) -> Result<Object, Error> {
             }
         }
 
-        debug_assert!(instructions.len() > frame.ip);
-        let opcode = unsafe { OpCode::from(*instructions.get_unchecked(frame.ip)) };
-        match opcode {
+        match vm.next() {
             OpCode::Const => {
-                let idx = read_u16_operand!(instructions, frame.ip);
-                stack.push(constants[idx]);
-                frame.ip += 3;
+                let idx = vm.read_u16() as usize;
+                vm.push(constants[idx]);
             }
             OpCode::SetGlobal => {
-                let idx = read_u16_operand!(instructions, frame.ip);
-                let value = pop(&mut stack);
-                while globals.len() <= idx {
-                    globals.push(Object::null());
+                let idx = vm.read_u16() as usize;
+                let value = vm.pop();
+                while vm.globals.len() <= idx {
+                    vm.globals.push(Object::null());
                 }
-                globals[idx] = value;
-                frame.ip += 3;
+                vm.globals[idx] = value;
             }
             OpCode::GetGlobal => {
-                let idx = read_u16_operand!(instructions, frame.ip);
-                stack.push(globals[idx]);
-                frame.ip += 3;
+                let idx = vm.read_u16() as usize;
+                let result = vm.globals[idx];
+                vm.push(result);
             }
             OpCode::SetLocal => {
-                let idx = read_u16_operand!(instructions, frame.ip);
-                let value = pop(&mut stack);
-                stack[frame.base_pointer + idx] = value;
-                frame.ip += 3;
+                let idx = vm.read_u16();
+                let value = vm.pop();
+                vm.set_local(idx, value);
             }
             OpCode::GetLocal => {
-                let idx = read_u16_operand!(instructions, frame.ip);
-                debug_assert!(stack.len() > frame.base_pointer + idx);
-                stack.push(unsafe { *stack.get_unchecked(frame.base_pointer + idx) });
-                frame.ip += 3;
+                let idx = vm.read_u16();
+                let value = vm.get_local(idx);
+                vm.push(value);
             }
-            // TODO: Make JUMP* opcodes relative
+            // TODO: Make JUMP* opcodes relative?
             OpCode::Jump => {
-                frame.ip = read_u16_operand!(instructions, frame.ip);
+                let pos = vm.read_u16();
+                vm.jump(pos);
 
                 // collect garbage on every jump instruction
-                gc.run(&[&stack, &constants, &globals, &[final_result]]);
+                // gc.run(&[&vm.stack, &constants, &vm.globals, &[final_result]]);
             }
             OpCode::JumpIfFalse => {
-                let condition = pop(&mut stack);
+                let condition = vm.pop();
                 let evaluation = match condition.tag() {
                     Type::Bool => Ok(condition.as_bool()),
                     _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
                 }?;
-                if evaluation == true {
-                    frame.ip += 3;
-                } else {
-                    frame.ip = read_u16_operand!(instructions, frame.ip);
+
+                let pos = vm.read_u16();
+                if evaluation == false {
+                    vm.jump(pos);
                 }
             }
             OpCode::Pop => {
-                final_result = pop(&mut stack);
-                frame.ip += 1;
+                final_result = vm.pop();
             }
             OpCode::Null => {
-                stack.push(Object::null());
-                frame.ip += 1;
+                vm.push(Object::null());
             }
             OpCode::True => {
-                stack.push(Object::bool(true));
-                frame.ip += 1;
+                vm.push(Object::bool(true));
             }
             OpCode::False => {
-                stack.push(Object::bool(false));
-                frame.ip += 1;
+                vm.push(Object::bool(false));
             }
             OpCode::Add => impl_binary_op_method!(add),
             OpCode::Subtract => impl_binary_op_method!(sub),
@@ -239,7 +304,7 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::And => impl_binary_op_method!(and),
             OpCode::Or => impl_binary_op_method!(or),
             OpCode::Not => {
-                let left = pop(&mut stack);
+                let left = vm.pop();
                 if left.tag() != Type::Bool {
                     return Err(Error::TypeError(format!(
                         "kan ! (niet) niet toepassen op objecten van type {}",
@@ -247,11 +312,10 @@ fn run(program: Program) -> Result<Object, Error> {
                     )));
                 }
                 let result = Object::bool(!left.as_bool());
-                stack.push(result);
-                frame.ip += 1;
+                vm.push(result);
             }
             OpCode::Negate => {
-                let left = pop(&mut stack);
+                let left = vm.pop();
                 let result = match left.tag() {
                     Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), &mut gc) },
                     Type::Int => Object::int(-left.as_int()),
@@ -262,13 +326,12 @@ fn run(program: Program) -> Result<Object, Error> {
                         )))
                     }
                 };
-                stack.push(result);
-                frame.ip += 1;
+                vm.push(result);
             }
             OpCode::Call => {
-                let num_args = read_u8_operand!(instructions, frame.ip);
-                let base_pointer = stack.len() - 1 - num_args;
-                let obj = pop(&mut stack);
+                let num_args = vm.read_u8();
+                let base_pointer = vm.stack.len() as u16 - 1 - num_args as u16;
+                let obj = vm.pop();
                 if obj.tag() != Type::Function {
                     return Err(Error::TypeError(format!(
                         "object van type {} is not aanroepbaar",
@@ -279,40 +342,31 @@ fn run(program: Program) -> Result<Object, Error> {
 
                 // Make room on the stack for any local variables defined inside this function
                 for _ in 0..num_locals as u16 - num_args as u16 {
-                    stack.push(Object::null());
+                    vm.push(Object::null());
                 }
 
-                frame.ip += 1;
-                frames.push(Frame::new(ip as usize, base_pointer));
-                frame = frames.last_mut().unwrap();
+                vm.pushframe(ip, base_pointer);
             }
             OpCode::CallBuiltin => {
-                let builtin = read_u8_operand!(instructions, frame.ip) as u8;
-                let num_args = read_u8_operand!(instructions, frame.ip + 1);
+                let builtin = vm.read_u8() as u8;
+                let num_args = vm.read_u8() as usize;
                 let mut args = Vec::with_capacity(num_args);
                 for _ in 0..num_args {
-                    args.push(pop(&mut stack));
+                    args.push(vm.pop());
                 }
                 args.reverse();
                 let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
                 let result = builtins::call(builtin, &args, &mut gc)?;
-                stack.push(result);
-                frame.ip += 3;
+                vm.push(result);
             }
             OpCode::ReturnValue => {
-                let result = pop(&mut stack);
-                stack.truncate(frame.base_pointer);
-                stack.push(result);
-                frames.truncate(frames.len() - 1);
-                frame = frames.last_mut().unwrap();
-                frame.ip += 1;
+                let result = vm.pop();
+                vm.popframe();
+                vm.push(result);
             }
             OpCode::Return => {
-                stack.truncate(frame.base_pointer);
-                stack.push(Object::null());
-                frames.truncate(frames.len() - 1);
-                frame = frames.last_mut().unwrap();
-                frame.ip += 1;
+                vm.popframe();
+                vm.push(Object::null());
             }
             OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
             OpCode::GteLocalConst => impl_binary_const_local_op_method!(gte),
@@ -326,28 +380,28 @@ fn run(program: Program) -> Result<Object, Error> {
             OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
             OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
             OpCode::Array => {
-                let length = read_u16_operand!(instructions, frame.ip);
-                let mut vec = Vec::with_capacity(length);
+                let length = vm.read_u16();
+                let mut vec = Vec::with_capacity(length as usize);
                 for _ in 0..length {
-                    vec.push(pop(&mut stack));
+                    vec.push(vm.pop());
                 }
                 vec.reverse();
                 // TODO: Re-use vector allocation here
                 let obj = Object::array(&vec, &mut gc);
-                stack.push(obj);
-                frame.ip += 3;
+                vm.push(obj);
             }
             OpCode::IndexGet => {
-                index_get(&mut stack, &mut gc)?;
-                frame.ip += 1;
+                let index = vm.pop();
+                let left = vm.pop();
+                let result = index_get(left, index, &mut gc)?;
+                vm.push(result);
             }
             OpCode::IndexSet => {
-                let value = pop(&mut stack);
-                let index = pop(&mut stack);
-                let left = pop(&mut stack);
+                let value = vm.pop();
+                let index = vm.pop();
+                let left = vm.pop();
                 let value = index_set(left, index, value)?;
-                stack.push(value);
-                frame.ip += 1;
+                vm.push(value);
             }
             OpCode::Halt => {
                 gc.untrace(final_result);
@@ -357,8 +411,7 @@ fn run(program: Program) -> Result<Object, Error> {
     }
 }
 
-fn index_get(stack: &mut Vec<Object>, gc: &mut GC) -> Result<(), Error> {
-    let index = pop(stack);
+fn index_get(left: Object, index: Object, gc: &mut GC) -> Result<Object, Error> {
     if index.tag() != Type::Int {
         return Err(Error::TypeError(format!(
             "lijst index moet een integer zijn, geen {}",
@@ -366,7 +419,6 @@ fn index_get(stack: &mut Vec<Object>, gc: &mut GC) -> Result<(), Error> {
         )));
     }
 
-    let left = pop(stack);
     let result = match left.tag() {
         Type::Array => index_get_array(left, index.as_int()),
         Type::String => index_get_string(left, index.as_int(), gc),
@@ -378,8 +430,7 @@ fn index_get(stack: &mut Vec<Object>, gc: &mut GC) -> Result<(), Error> {
         }
     }?;
 
-    stack.push(result);
-    Ok(())
+    Ok(result)
 }
 
 fn index_get_array(obj: Object, mut index: isize) -> Result<Object, Error> {
