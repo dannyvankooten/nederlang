@@ -1,6 +1,5 @@
-use std::fmt::Display;
-
 use crate::lexer::Token;
+use std::fmt::Display;
 
 #[derive(PartialEq, Debug, PartialOrd, Clone)]
 pub enum Stmt {
@@ -127,6 +126,7 @@ impl Display for Expr {
             Expr::Function { .. } => f.write_str("function"),
             Expr::Array { .. } => f.write_str("array"),
 
+            // fallback to Debug formatter
             _ => write!(f, "{self:?}"),
         }
     }

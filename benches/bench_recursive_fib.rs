@@ -1,7 +1,7 @@
 extern crate nederlang;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use nederlang::vm::run_str;
+use nederlang::eval;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let code = "
@@ -15,7 +15,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     
     fib(24)
     ";
-    c.bench_function("fib(24)", |b| b.iter(|| run_str(black_box(code))));
+    c.bench_function("fib(24)", |b| b.iter(|| eval(black_box(code))));
 }
 
 criterion_group! {

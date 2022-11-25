@@ -22,6 +22,7 @@ enum Precedence {
 
 impl Token<'_> {
     /// Get the parsing precedence for a given Token
+    #[inline]
     fn precedence(&self) -> Precedence {
         match self {
             Token::Assign => Precedence::Assign,
@@ -55,13 +56,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Advances the parser (reads the next token)
-    #[inline]
+    #[inline(always)]
     fn advance(&mut self) {
         self.current_token = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
     /// Parses an operator token
-    #[inline]
     fn parse_operator(&mut self) -> Operator {
         Operator::from(self.current_token)
     }
@@ -171,6 +171,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Assert current token is of the given type and skips it
+    #[inline]
     fn skip(&mut self, t: Token) -> Result<(), ParseError> {
         if self.current_token != t {
             return Err(ParseError::SyntaxError(format!(
@@ -355,6 +356,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse an expression
+    #[inline]
     fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
         let mut left = match self.current_token {
             Token::Int(s) => self.parse_int_expression(s),
@@ -439,6 +441,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a single statement
+    #[inline]
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         let stmt = match self.current_token {
             Token::Declare => self.parse_decl_statement()?,

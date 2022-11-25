@@ -8,12 +8,6 @@ use crate::object::Error;
 use crate::object::Object;
 use crate::symbols::*;
 
-macro_rules! read_u16_operand {
-    ($instructions:expr, $ip:expr) => {
-        ($instructions[$ip + 1] as u16) | (($instructions[$ip + 2] as u16) << 8)
-    };
-}
-
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) enum OpCode {
@@ -130,6 +124,21 @@ impl OpCode {
     }
 }
 
+pub struct Bytecode {
+    pub constants: Vec<Object>,
+    pub instructions: Vec<u8>,
+}
+
+pub struct Compiler {
+    symbols: SymbolTable,
+    constants: Vec<Object>,
+    instructions: Vec<u8>,
+    last_instruction: Option<OpCode>,
+    loop_contexts: Vec<LoopContext>,
+    gc: GC,
+}
+
+/// Type to keep track of loop constructs so we can emit the proper jump instructions
 struct LoopContext {
     /// Points to the first instruction of the (current) loop condition
     /// This is where continue statements should jump to
@@ -149,25 +158,40 @@ impl LoopContext {
     }
 }
 
-pub(crate) struct Compiler {
-    symbols: SymbolTable,
-    constants: Vec<Object>,
-    instructions: Vec<u8>,
-    last_instruction: Option<OpCode>,
-    loop_contexts: Vec<LoopContext>,
-    gc: GC,
-}
-
 impl Compiler {
-    fn new() -> Self {
+    /// Create a new compiler
+    pub fn new() -> Self {
         Self {
             symbols: SymbolTable::new(),
-            instructions: Vec::with_capacity(64),
-            constants: Vec::with_capacity(64),
+            instructions: Vec::new(),
+            constants: Vec::new(),
             last_instruction: None,
             loop_contexts: Vec::new(),
             gc: GC::new(),
         }
+    }
+
+    /// Compiles the given AST into executable Bytecode
+    pub fn compile_ast(&mut self, ast: &BlockStmt) -> Result<Bytecode, Error> {
+        // Call compile_statement on each child node directly
+        // We don't re-use compile_block_statement here because it exits the global scope
+        for s in ast {
+            self.compile_statement(s)?;
+        }
+        self.emit_opcode(OpCode::Halt);
+        self.instructions.shrink_to_fit();
+        self.constants.shrink_to_fit();
+
+        // instruct GC to stop managing any of the constants
+        // TODO: Implement custom Clone for object instead?
+        for c in &self.constants {
+            self.gc.untrace(*c);
+        }
+
+        Ok(Bytecode {
+            constants: self.constants.clone(),
+            instructions: std::mem::take(&mut self.instructions),
+        })
     }
 
     #[inline]
@@ -657,35 +681,6 @@ impl Compiler {
     }
 }
 
-pub(crate) struct Program {
-    pub(crate) constants: Vec<Object>,
-    pub(crate) instructions: Vec<u8>,
-    pub(crate) gc: GC,
-}
-
-impl Program {
-    pub(crate) fn new(ast: BlockStmt) -> Result<Self, Error> {
-        let mut compiler = Compiler::new();
-
-        compiler.compile_block_statement(&ast)?;
-        compiler.emit_opcode(OpCode::Halt);
-
-        // Copy all instructions for compiled functions over to main scope (after OpCode::Halt)
-        let mut instructions = compiler.instructions;
-        let mut constants = compiler.constants;
-
-        // Shrink everything to least possible size
-        instructions.shrink_to_fit();
-        constants.shrink_to_fit();
-
-        Ok(Self {
-            constants,
-            instructions,
-            gc: compiler.gc,
-        })
-    }
-}
-
 /// We use a string representation of OpCodes to make testing a little easier
 impl Display for OpCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -744,7 +739,7 @@ impl Display for OpCode {
 // Converts an array of bytes to a string representation consisting of the OpCode along with their u16 values
 // For example: [OpCode::Const, 1, 0] -> "Const(1)"
 #[allow(dead_code)]
-pub fn bytecode_to_human(code: &[u8], positions: bool) -> String {
+pub(crate) fn bytecode_to_human(code: &[u8], positions: bool) -> String {
     let mut ip = 0;
     let mut str = String::with_capacity(256);
 
@@ -767,7 +762,12 @@ pub fn bytecode_to_human(code: &[u8], positions: bool) -> String {
             }
 
             match width {
-                2 => write!(str, "{}", read_u16_operand!(code, ip)).unwrap(),
+                2 => write!(
+                    str,
+                    "{}",
+                    (code[ip + 1] as u16) | ((code[ip + 2] as u16) << 8)
+                )
+                .unwrap(),
                 1 => write!(str, "{}", code[ip + 1]).unwrap(),
                 _ => panic!("invalid operand width"),
             };
@@ -790,13 +790,13 @@ mod tests {
 
     fn run(program: &str) -> String {
         let ast = parse(program).unwrap();
-        let program = Program::new(ast).unwrap();
+        let program = Compiler::new().compile_ast(&ast).unwrap();
         bytecode_to_human(&program.instructions, false)
     }
 
     fn assert_bytecode_eq(program: &str, expected: &str) {
         let ast = parse(program).unwrap();
-        let code = Program::new(ast).unwrap();
+        let code = Compiler::new().compile_ast(&ast).unwrap();
         assert_eq!(
             bytecode_to_human(&code.instructions, false),
             expected,

@@ -166,6 +166,7 @@ impl<'a> Tokenizer<'a> {
 }
 
 impl<'a> From<&'a str> for Token<'a> {
+    #[inline]
     fn from(value: &'a str) -> Self {
         match value {
             "als" => If,
@@ -186,6 +187,7 @@ impl<'a> From<&'a str> for Token<'a> {
 impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.offset();
         let token = match self.bump()? {
@@ -310,7 +312,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 /// See [Rust language reference](https://doc.rust-lang.org/reference/whitespace.html)
 /// for definitions of these classes.
 #[inline]
-pub fn is_whitespace(c: char) -> bool {
+fn is_whitespace(c: char) -> bool {
     // This is Pattern_White_Space.
     //
     // Note that this set is stable (ie, it doesn't change with different

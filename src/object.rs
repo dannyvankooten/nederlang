@@ -54,8 +54,6 @@ pub enum Type {
     Float,
     String,
     Array,
-    // 0b110
-    // 0b111
 }
 
 // Object is a wrapper over raw pointers so we can tag them with immediate values (null, bool, int)
@@ -104,20 +102,34 @@ impl Object {
 
     /// Create a new (garbage-collected) String value
     #[inline]
+    pub fn from_string(value: RString, gc: &mut GC) -> Self {
+        let ptr = String::from_string(value);
+        gc.trace(ptr);
+        ptr
+    }
+
+    /// Create a new (garbage-collected) String value
+    #[inline]
     pub fn string(value: &str, gc: &mut GC) -> Self {
-        String::from_str(value, gc)
+        let ptr = String::from_str(value);
+        gc.trace(ptr);
+        ptr
     }
 
     /// Create a new (garbage-collected) Float value
     #[inline]
     pub fn float(value: f64, gc: &mut GC) -> Self {
-        Float::from_f64(value, gc)
+        let ptr = Float::from_f64(value);
+        gc.trace(ptr);
+        ptr
     }
 
     /// Create a new (garbage-collected) Array value
     #[inline]
     pub fn array(value: &[Object], gc: &mut GC) -> Self {
-        Array::from_slice(value, gc)
+        let ptr = Array::from_slice(value);
+        gc.trace(ptr);
+        ptr
     }
 
     /// Returns the type of this object pointer
@@ -279,18 +291,8 @@ impl Object {
     }
 }
 
-pub trait New<T> {
-    fn new(value: T, gc: &mut GC) -> Self;
-}
-
-impl New<RString> for Object {
-    fn new(value: RString, gc: &mut GC) -> Self {
-        String::from_string(value, gc)
-    }
-}
-
 impl PartialEq for Object {
-    #[inline]
+    #[inline(always)]
     fn eq(&self, other: &Self) -> bool {
         if self.tag() != other.tag() {
             return false;
@@ -310,7 +312,7 @@ impl PartialEq for Object {
 }
 
 impl PartialOrd for Object {
-    #[inline]
+    #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // we assert this in the various wrapper functions, eg Object::lt
         debug_assert_eq!(self.tag(), other.tag());
@@ -329,180 +331,10 @@ impl PartialOrd for Object {
     }
 }
 
-#[repr(C)]
-pub(crate) struct Header {
-    pub(crate) marked: bool,
-}
-
-impl Header {
-    #[inline]
-    pub(crate) unsafe fn read(obj: &Object) -> &mut Header {
-        obj.get_mut::<Self>()
-    }
-}
-
-#[repr(C)]
-struct Float {
-    header: Header,
-    value: f64,
-}
-
-impl Float {
-    #[inline]
-    unsafe fn read(obj: &Object) -> f64 {
-        obj.get::<Self>().value
-    }
-
-    #[inline]
-    unsafe fn destroy(obj: Object) {
-        drop_in_place(obj.as_ptr() as *mut Self);
-        dealloc(obj.as_ptr(), Layout::new::<Self>());
-    }
-
-    fn from_f64(value: f64, gc: &mut GC) -> Object {
-        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Float);
-        let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
-        init!(obj.value => value );
-
-        // Add allocated object to GC tracer
-        gc.trace(ptr);
-
-        ptr
-    }
-}
-
-#[repr(C)]
-struct String {
-    header: Header,
-    value: RString,
-}
-
-impl String {
-    #[inline]
-    unsafe fn destroy(ptr: Object) {
-        drop_in_place(ptr.as_ptr() as *mut Self);
-        dealloc(ptr.as_ptr(), Layout::new::<Self>());
-    }
-
-    fn from_string(value: RString, gc: &mut GC) -> Object {
-        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::String);
-        let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
-        init!(obj.value => value);
-
-        // Add allocated object to GC tracer
-        gc.trace(ptr);
-
-        ptr
-    }
-
-    fn from_str(value: &str, gc: &mut GC) -> Object {
-        Self::from_string(value.to_string(), gc)
-    }
-}
-
-#[repr(C)]
-struct Array {
-    header: Header,
-    value: Vec<Object>,
-}
-
-impl Array {
-    #[inline]
-    unsafe fn read(ptr: &Object) -> &Vec<Object> {
-        ptr.get::<Self>().value.as_ref()
-    }
-
-    /// Drops and deallocate this NlArray struct and its value
-    #[inline]
-    unsafe fn destroy(ptr: Object) {
-        drop_in_place(ptr.as_ptr() as *mut Self);
-        dealloc(ptr.as_ptr(), Layout::new::<Self>());
-    }
-
-    fn from_vec(vec: Vec<Object>, gc: &mut GC) -> Object {
-        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Array);
-        let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
-        init!(obj.value => vec);
-
-        // Add allocated object to GC tracer
-        gc.trace(ptr);
-
-        ptr
-    }
-
-    /// Creates a new Pointer object pointing to Array
-    fn from_slice(slice: &[Object], gc: &mut GC) -> Object {
-        Self::from_vec(slice.to_vec(), gc)
-    }
-}
-
-impl Display for Object {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.tag() {
-            Type::Null => (),
-            Type::Bool => f.write_str(if self.as_bool() { "ja" } else { "nee" })?,
-            Type::Float => unsafe { f.write_str(&self.as_f64_unchecked().to_string())? },
-            Type::Int => f.write_str(&self.as_int().to_string())?,
-            Type::String => unsafe { f.write_str(self.as_str_unchecked())? },
-            Type::Array => {
-                let values = unsafe { self.as_vec_unchecked() };
-                f.write_char('[')?;
-                for (i, obj) in values.iter().enumerate() {
-                    if i > 0 {
-                        f.write_str(", ")?;
-                    }
-                    std::fmt::Display::fmt(&obj, f)?;
-                }
-                f.write_char(']')?;
-            }
-            Type::Function => f.write_str("functie")?,
-        }
-        Ok(())
-    }
-}
-
-use std::fmt::Debug;
-impl Debug for Object {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
-    }
-}
-
-impl Display for Type {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            Type::Null => "null",
-            Type::Bool => "bool",
-            Type::Float => "float",
-            Type::Int => "int",
-            Type::String => "string",
-            Type::Array => "array",
-            Type::Function => "functie",
-        };
-        f.write_str(str)
-    }
-}
-
-/// Allocate a chunk of memory with the given layout
-fn allocate(layout: Layout) -> *mut u8 {
-    // Safety: we only call this function for types with a non-zero layout
-    let ptr = unsafe { alloc(layout) };
-
-    if ptr.is_null() {
-        handle_alloc_error(layout);
-    } else {
-        ptr
-    }
-}
-
 macro_rules! impl_arith {
     ($func_name:ident, $op:tt) => {
         #[inline(always)]
-        pub fn $func_name(self, rhs: Self, gc: &mut GC) -> Result<Object, Error> {
-
+        pub(crate) fn $func_name(self, rhs: Self, gc: &mut GC) -> Result<Object, Error> {
             if self.tag() != rhs.tag() {
                 return Err(Error::TypeError(format!("kan geen {} doen op objecten van verschillende types ({} en {})", stringify!($op), self.tag(), rhs.tag())))
             }
@@ -565,6 +397,158 @@ impl Object {
 
     impl_logical!(and, &&);
     impl_logical!(or, ||);
+}
+
+#[repr(C)]
+pub(crate) struct Header {
+    pub(crate) marked: bool,
+}
+
+impl Header {
+    #[inline]
+    pub unsafe fn read(obj: &Object) -> &mut Header {
+        obj.get_mut::<Self>()
+    }
+}
+
+#[repr(C)]
+struct Float {
+    header: Header,
+    value: f64,
+}
+
+impl Float {
+    #[inline]
+    unsafe fn read(obj: &Object) -> f64 {
+        obj.get::<Self>().value
+    }
+
+    #[inline]
+    unsafe fn destroy(obj: Object) {
+        drop_in_place(obj.as_ptr() as *mut Self);
+        dealloc(obj.as_ptr(), Layout::new::<Self>());
+    }
+
+    fn from_f64(value: f64) -> Object {
+        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Float);
+        let obj = unsafe { ptr.get_mut::<Self>() };
+        obj.header.marked = false;
+        init!(obj.value => value );
+        ptr
+    }
+}
+
+#[repr(C)]
+struct String {
+    header: Header,
+    value: RString,
+}
+
+impl String {
+    unsafe fn destroy(ptr: Object) {
+        drop_in_place(ptr.as_ptr() as *mut Self);
+        dealloc(ptr.as_ptr(), Layout::new::<Self>());
+    }
+
+    fn from_string(value: RString) -> Object {
+        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::String);
+        let obj = unsafe { ptr.get_mut::<Self>() };
+        obj.header.marked = false;
+        init!(obj.value => value);
+        ptr
+    }
+
+    fn from_str(value: &str) -> Object {
+        Self::from_string(value.to_string())
+    }
+}
+
+#[repr(C)]
+struct Array {
+    header: Header,
+    value: Vec<Object>,
+}
+
+impl Array {
+    unsafe fn read(ptr: &Object) -> &Vec<Object> {
+        ptr.get::<Self>().value.as_ref()
+    }
+
+    /// Drops and deallocate this NlArray struct and its value
+    unsafe fn destroy(ptr: Object) {
+        drop_in_place(ptr.as_ptr() as *mut Self);
+        dealloc(ptr.as_ptr(), Layout::new::<Self>());
+    }
+
+    fn from_vec(vec: Vec<Object>) -> Object {
+        let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Array);
+        let obj = unsafe { ptr.get_mut::<Self>() };
+        obj.header.marked = false;
+        init!(obj.value => vec);
+        ptr
+    }
+
+    fn from_slice(slice: &[Object]) -> Object {
+        Self::from_vec(slice.to_vec())
+    }
+}
+
+impl Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.tag() {
+            Type::Null => (),
+            Type::Bool => f.write_str(if self.as_bool() { "ja" } else { "nee" })?,
+            Type::Float => unsafe { f.write_str(&self.as_f64_unchecked().to_string())? },
+            Type::Int => f.write_str(&self.as_int().to_string())?,
+            Type::String => unsafe { f.write_str(self.as_str_unchecked())? },
+            Type::Array => {
+                let values = unsafe { self.as_vec_unchecked() };
+                f.write_char('[')?;
+                for (i, obj) in values.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    std::fmt::Display::fmt(&obj, f)?;
+                }
+                f.write_char(']')?;
+            }
+            Type::Function => f.write_str("functie")?,
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Type::Null => "null",
+            Type::Bool => "bool",
+            Type::Float => "float",
+            Type::Int => "int",
+            Type::String => "string",
+            Type::Array => "array",
+            Type::Function => "functie",
+        };
+        f.write_str(str)
+    }
+}
+
+/// Allocate a chunk of memory with the given layout
+fn allocate(layout: Layout) -> *mut u8 {
+    // Safety: we only call this function for types with a non-zero layout
+    let ptr = unsafe { alloc(layout) };
+
+    if ptr.is_null() {
+        handle_alloc_error(layout);
+    } else {
+        ptr
+    }
 }
 
 #[cfg(test)]
@@ -655,20 +639,20 @@ mod tests {
 
     #[test]
     fn test_pointer_empty_array() {
-        let mut gc = GC::new();
-        let ptr = Array::from_slice(&[], &mut gc);
+        let ptr = Array::from_slice(&[]);
         assert_eq!(ptr.tag(), Type::Array);
         assert!(ptr.is_heap_allocated());
         assert_eq!(ptr.as_vec().len(), 0);
+        ptr.free();
     }
 
     #[test]
     fn test_pointer_array() {
-        let mut gc = GC::new();
-        let ptr = Array::from_slice(&[Object::null()], &mut gc);
+        let ptr = Array::from_slice(&[Object::null()]);
         assert_eq!(ptr.tag(), Type::Array);
         assert_eq!(ptr.as_vec().len(), 1);
         assert_eq!(ptr.as_vec().get(0), Some(&Object::null()));
+        ptr.free();
     }
 
     // TODO: Test PartialEq & PartialOrd implementations

@@ -1,5 +1,6 @@
 use crate::object::{Header, Object, Type};
 
+// TODO: Change visibility of GC to crate-private
 pub struct GC {
     /// Vector of all currently alive heap-allocated objects in the universe
     objects: Vec<Object>,
@@ -10,6 +11,13 @@ impl GC {
     pub fn new() -> GC {
         Self {
             objects: Vec::with_capacity(8),
+        }
+    }
+
+    #[inline]
+    pub fn maybe_trace(&mut self, o: Object) {
+        if o.is_heap_allocated() {
+            self.objects.push(o);
         }
     }
 

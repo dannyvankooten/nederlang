@@ -1,8 +1,7 @@
 use crate::builtins::{self, Builtin};
-use crate::compiler::{OpCode, Program};
+use crate::compiler::{Bytecode, OpCode};
 use crate::gc::GC;
-use crate::object::{Error, New, Object, Type};
-use crate::parser::parse;
+use crate::object::{Error, Object, Type};
 
 #[cfg(feature = "debug")]
 use std::io::Write;
@@ -11,6 +10,7 @@ use std::ptr;
 #[cfg(feature = "debug")]
 use crate::compiler::bytecode_to_human;
 
+#[derive(Copy, Clone, Debug)]
 struct Frame {
     /// Index of the current instruction
     ip: usize,
@@ -27,13 +27,7 @@ impl Frame {
     }
 }
 
-pub fn run_str(program: &str) -> Result<Object, Error> {
-    let ast = parse(program)?;
-    let program = Program::new(ast)?;
-    run(program)
-}
-
-struct VM {
+pub struct VM {
     stack: Vec<Object>,
     globals: Vec<Object>,
     frames: Vec<Frame>,
@@ -43,7 +37,8 @@ struct VM {
 }
 
 impl VM {
-    fn new(instructions: Vec<u8>) -> Self {
+    /// Creates a new VM with an empty stack and callframes vector
+    pub fn new() -> Self {
         let mut frames = Vec::with_capacity(32);
         frames.push(Frame::new(0, 0));
 
@@ -51,17 +46,22 @@ impl VM {
             stack: Vec::with_capacity(32),
             globals: Vec::with_capacity(8),
             frames,
-            instructions,
+            instructions: Vec::new(),
             ip: 0,
             bp: 0,
         }
     }
 
+    /// Get a local variable (stored on the stack)
+    /// The passed index is the relative position to the base pointer of the current callframe
+    /// Performance: Skipping the bounds check here does not yield any significant performance improvement
     #[inline(always)]
     fn get_local(&self, rel_idx: u16) -> Object {
         self.stack[self.bp as usize + rel_idx as usize]
     }
 
+    /// Store a local variable (on the stack)
+    /// The passed index is the relative position to the base pointer of the current callframe
     #[inline(always)]
     fn set_local(&mut self, rel_idx: u16, value: Object) {
         self.stack[self.bp as usize + rel_idx as usize] = value;
@@ -78,12 +78,10 @@ impl VM {
     /// Reads a u16 value from the current position in the instructions array
     #[inline(always)]
     fn read_u16(&mut self) -> u16 {
-        let v = unsafe {
-            (*self.instructions.get_unchecked(self.ip) as u16)
-                | (*self.instructions.get_unchecked(self.ip + 1) as u16) << 8
-        };
+        let start = self.ip;
         self.ip += 2;
-        v
+        let bytes = unsafe { self.instructions.get_unchecked(start..self.ip) };
+        bytes[0] as u16 | (bytes[1] as u16) << 8
     }
 
     /// Sets the instruction pointer to the given value
@@ -96,13 +94,16 @@ impl VM {
     /// This function still accounts for 25-35% of runtime right now...
     #[inline(always)]
     fn next(&mut self) -> OpCode {
-        let byte = unsafe { self.instructions.get_unchecked(self.ip) };
+        // Safety: if compiler did its job correctly, IP will always be in bounds
+        // Performance: skipping the bounds check yields a 22% performance improvement
+        let byte = unsafe { *self.instructions.get_unchecked(self.ip) };
         self.ip += 1;
-        OpCode::from(*byte)
+        OpCode::from(byte)
     }
 
-    /// Vec::pop, but without checking if it's empty first.
-    /// This yields a ~25% performance improvement over a regular `Vec::pop()` call
+    /// Pop an object off the stack
+    /// This is like `Vec::pop`, but without checking if it's empty first.
+    /// Performance: -25% over a regular call to `Vec::pop()`
     #[inline(always)]
     fn pop(&mut self) -> Object {
         debug_assert!(self.stack.is_empty() == false);
@@ -115,11 +116,14 @@ impl VM {
         }
     }
 
+    /// Push a new object on the stack
     #[inline(always)]
     fn push(&mut self, obj: Object) {
         self.stack.push(obj)
     }
 
+    /// Pop a callframe and return IP to the IP of the last callframe
+    /// This also truncates the stack back to SP from when this frame was pushed
     #[inline(always)]
     fn popframe(&mut self) {
         // pop frame and return stack to frame's base pointer
@@ -133,6 +137,7 @@ impl VM {
         self.bp = frame.base_pointer;
     }
 
+    /// Push new callframe with the given IP and Base Pointer
     #[inline(always)]
     fn pushframe(&mut self, ip: u32, base_pointer: u16) {
         // store current IP into the frame that we're leaving
@@ -146,266 +151,280 @@ impl VM {
         self.ip = ip as usize;
         self.bp = base_pointer;
     }
-}
 
-fn run(program: Program) -> Result<Object, Error> {
-    #[cfg(feature = "debug")]
-    {
-        println!("Bytecode (raw)= \n{:?}", &program.instructions);
-        print!(
-            "Bytecode (human)= {}\n",
-            bytecode_to_human(&program.instructions, true)
-        );
-        println!("{:16}= {:?}", "Constants", program.constants);
-    }
-
-    // Keep your friends close
-    let instructions = program.instructions;
-    let constants = program.constants;
-    let mut gc = program.gc;
-
-    let mut vm = VM::new(instructions);
-    let mut final_result = Object::null();
-
-    macro_rules! impl_binary_op_method {
-        ($op:tt) => {{
-            let right = vm.pop();
-            let left = vm.pop();
-            let result = left.$op(right, &mut gc)?;
-            vm.push(result);
-        }};
-    }
-
-    macro_rules! impl_binary_const_local_op_method {
-        ($op:tt) => {{
-            let local_idx = vm.read_u16();
-            let left = vm.get_local(local_idx);
-            let constant_idx = vm.read_u16();
-            let right = constants[constant_idx as usize];
-            let result = left.$op(right, &mut gc)?;
-            vm.push(result);
-        }};
-    }
-
-    #[cfg(feature = "debug")]
-    let mut debug_pause = 0;
-
-    #[cfg(feature = "debug")]
-    // Buffer used to capture input from stdin during stepped debugging
-    let mut buffer = String::new();
-
-    loop {
+    /// Executes the given Bytecode inside the context of this VM
+    pub fn run(&mut self, code: Bytecode) -> Result<Object, Error> {
         #[cfg(feature = "debug")]
         {
-            println!(
-                "{:16}= {}/{}: {}",
-                "Instruction",
-                vm.frame().ip,
-                vm.instructions.len(),
-                bytecode_to_human(&vm.instructions[vm.frame().ip..], false)
-                    .split(" ")
-                    .next()
-                    .unwrap()
+            println!("Bytecode (raw)= \n{:?}", &code.instructions);
+            print!(
+                "Bytecode (human)= {}\n",
+                bytecode_to_human(&code.instructions, true)
             );
-            print!("{:16}= [", "Globals");
-            for (i, v) in vm.globals.iter().enumerate() {
-                print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
-            }
-            println!("]");
-            print!("{:16}= [", "Stack");
-            for (i, v) in vm.stack.iter().enumerate() {
-                print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
-            }
-            println!("]");
-
-            if debug_pause == 0 {
-                print!("{} ", ">".repeat(40));
-                std::io::stdout().flush().unwrap();
-                buffer.clear();
-                std::io::stdin().read_line(&mut buffer).unwrap();
-                debug_pause = buffer.trim().parse().unwrap_or(1) - 1;
-            } else {
-                println!("{} ", ">".repeat(40));
-                debug_pause -= 1;
-            }
+            println!("{:16}= {:?}", "Constants", code.constants);
+            println!("{:16}= {:?}", "Frames", self.frames);
         }
 
-        match vm.next() {
-            OpCode::Const => {
-                let idx = vm.read_u16() as usize;
-                vm.push(constants[idx]);
-            }
-            OpCode::SetGlobal => {
-                let idx = vm.read_u16() as usize;
-                let value = vm.pop();
-                while vm.globals.len() <= idx {
-                    vm.globals.push(Object::null());
-                }
-                vm.globals[idx] = value;
-            }
-            OpCode::GetGlobal => {
-                let idx = vm.read_u16() as usize;
-                let result = vm.globals[idx];
-                vm.push(result);
-            }
-            OpCode::SetLocal => {
-                let idx = vm.read_u16();
-                let value = vm.pop();
-                vm.set_local(idx, value);
-            }
-            OpCode::GetLocal => {
-                let idx = vm.read_u16();
-                let value = vm.get_local(idx);
-                vm.push(value);
-            }
-            // TODO: Make JUMP* opcodes relative?
-            OpCode::Jump => {
-                let pos = vm.read_u16();
-                vm.jump(pos);
+        // reset some state
+        self.instructions = code.instructions;
+        self.ip = 0;
+        self.bp = 0;
+        self.frames[0].ip = 0;
+        self.frames[0].base_pointer = 0;
 
-                // collect garbage on every jump instruction
-                // gc.run(&[&vm.stack, &constants, &vm.globals, &[final_result]]);
+        // Keep your friends close
+        let constants = code.constants;
+        let mut final_result = Object::null();
+
+        // Construct a new garbage collector
+        // And allow to manage memory for constants
+        let gc = &mut GC::new();
+        for c in &constants {
+            gc.maybe_trace(*c)
+        }
+
+        macro_rules! impl_binary_op_method {
+            ($op:tt) => {{
+                let right = self.pop();
+                let left = self.pop();
+                let result = left.$op(right, gc)?;
+                self.push(result);
+            }};
+        }
+
+        macro_rules! impl_binary_const_local_op_method {
+            ($op:tt) => {{
+                let local_idx = self.read_u16();
+                let left = self.get_local(local_idx);
+                let constant_idx = self.read_u16();
+                let right = constants[constant_idx as usize];
+                let result = left.$op(right, gc)?;
+                self.push(result);
+            }};
+        }
+
+        #[cfg(feature = "debug")]
+        let mut debug_pause = 0;
+
+        #[cfg(feature = "debug")]
+        // Buffer used to capture input from stdin during stepped debugging
+        let mut buffer = String::new();
+
+        loop {
+            #[cfg(feature = "debug")]
+            {
+                println!(
+                    "{:16}= {}/{}: {}",
+                    "Instruction",
+                    self.ip,
+                    self.instructions.len() - 1,
+                    // This prints the OpCode along with all of its operand values (in decimal form)
+                    bytecode_to_human(&self.instructions[self.ip..], false)
+                        .split(" ")
+                        .next()
+                        .unwrap()
+                );
+                print!("{:16}= [", "Globals");
+                for (i, v) in self.globals.iter().enumerate() {
+                    print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
+                }
+                println!("]");
+                print!("{:16}= [", "Stack");
+                for (i, v) in self.stack.iter().enumerate() {
+                    print!("{}{}: {:?}", if i > 0 { ", " } else { "" }, i, v)
+                }
+                println!("]");
+
+                if debug_pause == 0 {
+                    print!("{} ", ">".repeat(40));
+                    std::io::stdout().flush().unwrap();
+                    buffer.clear();
+                    std::io::stdin().read_line(&mut buffer).unwrap();
+                    debug_pause = buffer.trim().parse().unwrap_or(1) - 1;
+                } else {
+                    println!("{} ", ">".repeat(40));
+                    debug_pause -= 1;
+                }
             }
-            OpCode::JumpIfFalse => {
-                let condition = vm.pop();
-                let evaluation = match condition.tag() {
+
+            match self.next() {
+                OpCode::Const => {
+                    let idx = self.read_u16();
+                    let value = constants[idx as usize];
+                    self.push(value);
+                }
+                OpCode::SetGlobal => {
+                    let idx = self.read_u16() as usize;
+                    let value = self.pop();
+                    while self.globals.len() <= idx {
+                        self.globals.push(Object::null());
+                    }
+                    self.globals[idx] = value;
+                }
+                OpCode::GetGlobal => {
+                    let idx = self.read_u16();
+                    let value = self.globals[idx as usize];
+                    self.push(value);
+                }
+                OpCode::SetLocal => {
+                    let idx = self.read_u16();
+                    let value = self.pop();
+                    self.set_local(idx, value);
+                }
+                OpCode::GetLocal => {
+                    let idx = self.read_u16();
+                    let value = self.get_local(idx);
+                    self.push(value);
+                }
+                // TODO: Make JUMP* opcodes relative?
+                OpCode::Jump => {
+                    let pos = self.read_u16();
+                    self.jump(pos);
+
+                    // collect garbage on every jump instruction
+                    // gc.run(&[&self.stack, &constants, &self.globals, &[final_result]]);
+                }
+                OpCode::JumpIfFalse => {
+                    let condition = self.pop();
+                    let evaluation = match condition.tag() {
                     Type::Bool => Ok(condition.as_bool()),
                     _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
                 }?;
 
-                let pos = vm.read_u16();
-                if evaluation == false {
-                    vm.jump(pos);
-                }
-            }
-            OpCode::Pop => {
-                final_result = vm.pop();
-            }
-            OpCode::Null => {
-                vm.push(Object::null());
-            }
-            OpCode::True => {
-                vm.push(Object::bool(true));
-            }
-            OpCode::False => {
-                vm.push(Object::bool(false));
-            }
-            OpCode::Add => impl_binary_op_method!(add),
-            OpCode::Subtract => impl_binary_op_method!(sub),
-            OpCode::Divide => impl_binary_op_method!(div),
-            OpCode::Multiply => impl_binary_op_method!(mul),
-            OpCode::Gt => impl_binary_op_method!(gt),
-            OpCode::Gte => impl_binary_op_method!(gte),
-            OpCode::Lt => impl_binary_op_method!(lt),
-            OpCode::Lte => impl_binary_op_method!(lte),
-            OpCode::Eq => impl_binary_op_method!(eq),
-            OpCode::Neq => impl_binary_op_method!(neq),
-            OpCode::Modulo => impl_binary_op_method!(rem),
-            OpCode::And => impl_binary_op_method!(and),
-            OpCode::Or => impl_binary_op_method!(or),
-            OpCode::Not => {
-                let left = vm.pop();
-                if left.tag() != Type::Bool {
-                    return Err(Error::TypeError(format!(
-                        "kan ! (niet) niet toepassen op objecten van type {}",
-                        left.tag()
-                    )));
-                }
-                let result = Object::bool(!left.as_bool());
-                vm.push(result);
-            }
-            OpCode::Negate => {
-                let left = vm.pop();
-                let result = match left.tag() {
-                    Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), &mut gc) },
-                    Type::Int => Object::int(-left.as_int()),
-                    _ => {
-                        return Err(Error::TypeError(format!(
-                            "kan objecten met type {} niet omdraaien",
-                            left.tag()
-                        )))
+                    let pos = self.read_u16();
+                    if evaluation == false {
+                        self.jump(pos);
                     }
-                };
-                vm.push(result);
-            }
-            OpCode::Call => {
-                let num_args = vm.read_u8();
-                let base_pointer = vm.stack.len() as u16 - 1 - num_args as u16;
-                let obj = vm.pop();
-                if obj.tag() != Type::Function {
-                    return Err(Error::TypeError(format!(
-                        "object van type {} is not aanroepbaar",
-                        obj.tag()
-                    )));
                 }
-                let [ip, num_locals] = obj.as_function();
+                OpCode::Pop => {
+                    final_result = self.pop();
+                }
+                OpCode::Null => {
+                    self.push(Object::null());
+                }
+                OpCode::True => {
+                    self.push(Object::bool(true));
+                }
+                OpCode::False => {
+                    self.push(Object::bool(false));
+                }
+                OpCode::Add => impl_binary_op_method!(add),
+                OpCode::Subtract => impl_binary_op_method!(sub),
+                OpCode::Divide => impl_binary_op_method!(div),
+                OpCode::Multiply => impl_binary_op_method!(mul),
+                OpCode::Gt => impl_binary_op_method!(gt),
+                OpCode::Gte => impl_binary_op_method!(gte),
+                OpCode::Lt => impl_binary_op_method!(lt),
+                OpCode::Lte => impl_binary_op_method!(lte),
+                OpCode::Eq => impl_binary_op_method!(eq),
+                OpCode::Neq => impl_binary_op_method!(neq),
+                OpCode::Modulo => impl_binary_op_method!(rem),
+                OpCode::And => impl_binary_op_method!(and),
+                OpCode::Or => impl_binary_op_method!(or),
+                OpCode::Not => {
+                    let left = self.pop();
+                    if left.tag() != Type::Bool {
+                        return Err(Error::TypeError(format!(
+                            "kan ! (niet) niet toepassen op objecten van type {}",
+                            left.tag()
+                        )));
+                    }
+                    let result = Object::bool(!left.as_bool());
+                    self.push(result);
+                }
+                OpCode::Negate => {
+                    let left = self.pop();
+                    let result = match left.tag() {
+                        Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), gc) },
+                        Type::Int => Object::int(-left.as_int()),
+                        _ => {
+                            return Err(Error::TypeError(format!(
+                                "kan objecten met type {} niet omdraaien",
+                                left.tag()
+                            )))
+                        }
+                    };
+                    self.push(result);
+                }
+                OpCode::Call => {
+                    let num_args = self.read_u8();
+                    let base_pointer = self.stack.len() as u16 - 1 - num_args as u16;
+                    let obj = self.pop();
+                    if obj.tag() != Type::Function {
+                        return Err(Error::TypeError(format!(
+                            "object van type {} is not aanroepbaar",
+                            obj.tag()
+                        )));
+                    }
+                    let [ip, num_locals] = obj.as_function();
 
-                // Make room on the stack for any local variables defined inside this function
-                for _ in 0..num_locals as u16 - num_args as u16 {
-                    vm.push(Object::null());
-                }
+                    // Make room on the stack for any local variables defined inside this function
+                    for _ in 0..num_locals as u32 - num_args as u32 {
+                        self.push(Object::null());
+                    }
 
-                vm.pushframe(ip, base_pointer);
-            }
-            OpCode::CallBuiltin => {
-                let builtin = vm.read_u8() as u8;
-                let num_args = vm.read_u8() as usize;
-                let mut args = Vec::with_capacity(num_args);
-                for _ in 0..num_args {
-                    args.push(vm.pop());
+                    self.pushframe(ip, base_pointer);
                 }
-                args.reverse();
-                let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
-                let result = builtins::call(builtin, &args, &mut gc)?;
-                vm.push(result);
-            }
-            OpCode::ReturnValue => {
-                let result = vm.pop();
-                vm.popframe();
-                vm.push(result);
-            }
-            OpCode::Return => {
-                vm.popframe();
-                vm.push(Object::null());
-            }
-            OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
-            OpCode::GteLocalConst => impl_binary_const_local_op_method!(gte),
-            OpCode::LtLocalConst => impl_binary_const_local_op_method!(lt),
-            OpCode::LteLocalConst => impl_binary_const_local_op_method!(lte),
-            OpCode::EqLocalConst => impl_binary_const_local_op_method!(eq),
-            OpCode::NeqLocalConst => impl_binary_const_local_op_method!(neq),
-            OpCode::AddLocalConst => impl_binary_const_local_op_method!(add),
-            OpCode::SubtractLocalConst => impl_binary_const_local_op_method!(sub),
-            OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
-            OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
-            OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
-            OpCode::Array => {
-                let length = vm.read_u16();
-                let mut vec = Vec::with_capacity(length as usize);
-                for _ in 0..length {
-                    vec.push(vm.pop());
+                OpCode::CallBuiltin => {
+                    let builtin = self.read_u8() as u8;
+                    let num_args = self.read_u8() as usize;
+                    let mut args = Vec::with_capacity(num_args);
+                    for _ in 0..num_args {
+                        args.push(self.pop());
+                    }
+                    args.reverse();
+                    let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
+                    let result = builtins::call(builtin, &args, gc)?;
+                    self.push(result);
                 }
-                vec.reverse();
-                // TODO: Re-use vector allocation here
-                let obj = Object::array(&vec, &mut gc);
-                vm.push(obj);
-            }
-            OpCode::IndexGet => {
-                let index = vm.pop();
-                let left = vm.pop();
-                let result = index_get(left, index, &mut gc)?;
-                vm.push(result);
-            }
-            OpCode::IndexSet => {
-                let value = vm.pop();
-                let index = vm.pop();
-                let left = vm.pop();
-                let value = index_set(left, index, value)?;
-                vm.push(value);
-            }
-            OpCode::Halt => {
-                gc.untrace(final_result);
-                return Ok(final_result);
+                OpCode::ReturnValue => {
+                    let result = self.pop();
+                    self.popframe();
+                    self.push(result);
+                }
+                OpCode::Return => {
+                    self.popframe();
+                    self.push(Object::null());
+                }
+                OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
+                OpCode::GteLocalConst => impl_binary_const_local_op_method!(gte),
+                OpCode::LtLocalConst => impl_binary_const_local_op_method!(lt),
+                OpCode::LteLocalConst => impl_binary_const_local_op_method!(lte),
+                OpCode::EqLocalConst => impl_binary_const_local_op_method!(eq),
+                OpCode::NeqLocalConst => impl_binary_const_local_op_method!(neq),
+                OpCode::AddLocalConst => impl_binary_const_local_op_method!(add),
+                OpCode::SubtractLocalConst => impl_binary_const_local_op_method!(sub),
+                OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
+                OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
+                OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
+                OpCode::Array => {
+                    let length = self.read_u16();
+                    let mut vec = Vec::with_capacity(length as usize);
+                    for _ in 0..length {
+                        vec.push(self.pop());
+                    }
+                    vec.reverse();
+                    // TODO: Re-use vector allocation here
+                    let obj = Object::array(&vec, gc);
+                    self.push(obj);
+                }
+                OpCode::IndexGet => {
+                    let index = self.pop();
+                    let left = self.pop();
+                    let result = index_get(left, index, gc)?;
+                    self.push(result);
+                }
+                OpCode::IndexSet => {
+                    let value = self.pop();
+                    let index = self.pop();
+                    let left = self.pop();
+                    let value = index_set(left, index, value)?;
+                    self.push(value);
+                }
+                OpCode::Halt => {
+                    gc.untrace(final_result);
+                    return Ok(final_result);
+                }
             }
         }
     }
@@ -461,7 +480,7 @@ fn index_get_string(obj: Object, mut index: isize, gc: &mut GC) -> Result<Object
     }
 
     let ch = str.chars().nth(index).unwrap();
-    let result = Object::new(ch.to_string(), gc);
+    let result = Object::from_string(ch.to_string(), gc);
     Ok(result)
 }
 

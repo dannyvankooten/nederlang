@@ -1,4 +1,4 @@
-pub struct SymbolTable {
+pub(crate) struct SymbolTable {
     /// A vector of contexts
     /// The context at index 0 will always be the global context,
     /// any context that follows is a local (to a function) context.
@@ -6,19 +6,19 @@ pub struct SymbolTable {
     contexts: Vec<Context>,
 }
 
-pub struct Symbol {
+pub(crate) struct Symbol {
     pub scope: Scope,
     pub index: u16,
 }
 
 #[derive(PartialEq, Copy, Clone)]
-pub enum Scope {
+pub(crate) enum Scope {
     Local,
     Global,
 }
 
 /// A context is a type of environment to store values in. This can be either a global context or a local (to a function) context.
-pub struct Context {
+pub(crate) struct Context {
     scope: Scope,
     max_size: usize,
     symbols: Vec<Vec<String>>,
@@ -35,7 +35,7 @@ impl Context {
 
     /// The maximum number of symbols defined in this context.
     /// Not all of these symbols may still be in scope once this context is destroyed.
-    pub fn max_size(&self) -> usize {
+    fn max_size(&self) -> usize {
         self.max_size
     }
 
@@ -46,7 +46,7 @@ impl Context {
     }
 
     /// Defines a new symbol in the current context its inner-most scope.
-    pub fn define(&mut self, name: &str) -> Symbol {
+    fn define(&mut self, name: &str) -> Symbol {
         let current_scope = self.symbols.last_mut().unwrap();
         current_scope.push(name.to_string());
         self.max_size += 1;
@@ -58,7 +58,7 @@ impl Context {
     }
 
     /// Resolves a symbol in this context along with its absolute index (relative to the context its top scope)
-    pub fn resolve(&self, name: &str) -> Option<Symbol> {
+    fn resolve(&self, name: &str) -> Option<Symbol> {
         let mut abs_index = self.total_len();
         for scope in self.symbols.iter().rev() {
             abs_index -= scope.len();
