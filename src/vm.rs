@@ -34,6 +34,10 @@ pub struct VM {
     instructions: Vec<u8>,
     ip: usize,
     bp: u16,
+
+    constants: Vec<Object>,
+    final_result: Object,
+    gc: GC,
 }
 
 impl VM {
@@ -49,6 +53,10 @@ impl VM {
             instructions: Vec::new(),
             ip: 0,
             bp: 0,
+
+            constants: Vec::new(),
+            gc: GC::new(),
+            final_result: Object::null(),
         }
     }
 
@@ -173,34 +181,12 @@ impl VM {
         self.frames[0].base_pointer = 0;
 
         // Keep your friends close
-        let constants = code.constants;
-        let mut final_result = Object::null();
+        self.constants = code.constants;
 
         // Construct a new garbage collector
         // And allow to manage memory for constants
-        let gc = &mut GC::new();
-        for c in &constants {
-            gc.maybe_trace(*c)
-        }
-
-        macro_rules! impl_binary_op_method {
-            ($op:tt) => {{
-                let right = self.pop();
-                let left = self.pop();
-                let result = left.$op(right, gc)?;
-                self.push(result);
-            }};
-        }
-
-        macro_rules! impl_binary_const_local_op_method {
-            ($op:tt) => {{
-                let local_idx = self.read_u16();
-                let left = self.get_local(local_idx);
-                let constant_idx = self.read_u16();
-                let right = constants[constant_idx as usize];
-                let result = left.$op(right, gc)?;
-                self.push(result);
-            }};
+        for c in &self.constants {
+            self.gc.maybe_trace(*c)
         }
 
         #[cfg(feature = "debug")]
@@ -248,185 +234,341 @@ impl VM {
             }
 
             match self.next() {
-                OpCode::Const => {
-                    let idx = self.read_u16();
-                    let value = constants[idx as usize];
-                    self.push(value);
-                }
-                OpCode::SetGlobal => {
-                    let idx = self.read_u16() as usize;
-                    let value = self.pop();
-                    while self.globals.len() <= idx {
-                        self.globals.push(Object::null());
-                    }
-                    self.globals[idx] = value;
-                }
-                OpCode::GetGlobal => {
-                    let idx = self.read_u16();
-                    let value = self.globals[idx as usize];
-                    self.push(value);
-                }
-                OpCode::SetLocal => {
-                    let idx = self.read_u16();
-                    let value = self.pop();
-                    self.set_local(idx, value);
-                }
-                OpCode::GetLocal => {
-                    let idx = self.read_u16();
-                    let value = self.get_local(idx);
-                    self.push(value);
-                }
-                // TODO: Make JUMP* opcodes relative?
-                OpCode::Jump => {
-                    let pos = self.read_u16();
-                    self.jump(pos);
-
-                    // collect garbage on every jump instruction
-                    // gc.run(&[&self.stack, &constants, &self.globals, &[final_result]]);
-                }
-                OpCode::JumpIfFalse => {
-                    let condition = self.pop();
-                    let evaluation = match condition.tag() {
-                    Type::Bool => Ok(condition.as_bool()),
-                    _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
-                }?;
-
-                    let pos = self.read_u16();
-                    if !evaluation {
-                        self.jump(pos);
-                    }
-                }
-                OpCode::Pop => {
-                    final_result = self.pop();
-                }
-                OpCode::Null => {
-                    self.push(Object::null());
-                }
-                OpCode::True => {
-                    self.push(Object::bool(true));
-                }
-                OpCode::False => {
-                    self.push(Object::bool(false));
-                }
-                OpCode::Add => impl_binary_op_method!(add),
-                OpCode::Subtract => impl_binary_op_method!(sub),
-                OpCode::Divide => impl_binary_op_method!(div),
-                OpCode::Multiply => impl_binary_op_method!(mul),
-                OpCode::Gt => impl_binary_op_method!(gt),
-                OpCode::Gte => impl_binary_op_method!(gte),
-                OpCode::Lt => impl_binary_op_method!(lt),
-                OpCode::Lte => impl_binary_op_method!(lte),
-                OpCode::Eq => impl_binary_op_method!(eq),
-                OpCode::Neq => impl_binary_op_method!(neq),
-                OpCode::Modulo => impl_binary_op_method!(rem),
-                OpCode::And => impl_binary_op_method!(and),
-                OpCode::Or => impl_binary_op_method!(or),
-                OpCode::Not => {
-                    let left = self.pop();
-                    if left.tag() != Type::Bool {
-                        return Err(Error::TypeError(format!(
-                            "kan ! (niet) niet toepassen op objecten van type {}",
-                            left.tag()
-                        )));
-                    }
-                    let result = Object::bool(!left.as_bool());
-                    self.push(result);
-                }
-                OpCode::Negate => {
-                    let left = self.pop();
-                    let result = match left.tag() {
-                        Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), gc) },
-                        Type::Int => Object::int(-left.as_int()),
-                        _ => {
-                            return Err(Error::TypeError(format!(
-                                "kan objecten met type {} niet omdraaien",
-                                left.tag()
-                            )))
-                        }
-                    };
-                    self.push(result);
-                }
-                OpCode::Call => {
-                    let num_args = self.read_u8();
-                    let base_pointer = self.stack.len() as u16 - 1 - num_args as u16;
-                    let obj = self.pop();
-                    if obj.tag() != Type::Function {
-                        return Err(Error::TypeError(format!(
-                            "object van type {} is not aanroepbaar",
-                            obj.tag()
-                        )));
-                    }
-                    let [ip, num_locals] = obj.as_function();
-
-                    // Make room on the stack for any local variables defined inside this function
-                    for _ in 0..num_locals - num_args as u32 {
-                        self.push(Object::null());
-                    }
-
-                    self.pushframe(ip, base_pointer);
-                }
-                OpCode::CallBuiltin => {
-                    let builtin = self.read_u8();
-                    let num_args = self.read_u8() as usize;
-                    let mut args = Vec::with_capacity(num_args);
-                    for _ in 0..num_args {
-                        args.push(self.pop());
-                    }
-                    args.reverse();
-                    let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
-                    let result = builtins::call(builtin, &args, gc)?;
-                    self.push(result);
-                }
-                OpCode::ReturnValue => {
-                    let result = self.pop();
-                    self.popframe();
-                    self.push(result);
-                }
-                OpCode::Return => {
-                    self.popframe();
-                    self.push(Object::null());
-                }
-                OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
-                OpCode::GteLocalConst => impl_binary_const_local_op_method!(gte),
-                OpCode::LtLocalConst => impl_binary_const_local_op_method!(lt),
-                OpCode::LteLocalConst => impl_binary_const_local_op_method!(lte),
-                OpCode::EqLocalConst => impl_binary_const_local_op_method!(eq),
-                OpCode::NeqLocalConst => impl_binary_const_local_op_method!(neq),
-                OpCode::AddLocalConst => impl_binary_const_local_op_method!(add),
-                OpCode::SubtractLocalConst => impl_binary_const_local_op_method!(sub),
-                OpCode::MultiplyLocalConst => impl_binary_const_local_op_method!(mul),
-                OpCode::DivideLocalConst => impl_binary_const_local_op_method!(div),
-                OpCode::ModuloLocalConst => impl_binary_const_local_op_method!(rem),
-                OpCode::Array => {
-                    let length = self.read_u16();
-                    let mut vec = Vec::with_capacity(length as usize);
-                    for _ in 0..length {
-                        vec.push(self.pop());
-                    }
-                    vec.reverse();
-                    // TODO: Re-use vector allocation here
-                    let obj = Object::array(vec, gc);
-                    self.push(obj);
-                }
-                OpCode::IndexGet => {
-                    let index = self.pop();
-                    let left = self.pop();
-                    let result = index_get(left, index, gc)?;
-                    self.push(result);
-                }
-                OpCode::IndexSet => {
-                    let value = self.pop();
-                    let index = self.pop();
-                    let left = self.pop();
-                    let value = index_set(left, index, value)?;
-                    self.push(value);
-                }
-                OpCode::Halt => {
-                    gc.untrace(final_result);
-                    return Ok(final_result);
-                }
+                OpCode::Const => self.op_const()?,
+                OpCode::Pop => self.op_pop()?,
+                OpCode::True => self.op_true()?,
+                OpCode::False => self.op_false()?,
+                OpCode::Add => self.op_add()?,
+                OpCode::Subtract => self.op_sub()?,
+                OpCode::Divide => self.op_div()?,
+                OpCode::Multiply => self.op_mul()?,
+                OpCode::Gt => self.op_gt()?,
+                OpCode::Gte => self.op_gte()?,
+                OpCode::Lt => self.op_lt()?,
+                OpCode::Lte => self.op_lte()?,
+                OpCode::Eq => self.op_eq()?,
+                OpCode::Neq => self.op_neq()?,
+                OpCode::And => self.op_and()?,
+                OpCode::Or => self.op_or()?,
+                OpCode::Not => self.op_not()?,
+                OpCode::Modulo => self.op_rem()?,
+                OpCode::Negate => self.op_negate()?,
+                OpCode::Jump => self.op_jump()?,
+                OpCode::JumpIfFalse => self.op_jumpiffalse()?,
+                OpCode::Null => self.op_null()?,
+                OpCode::Return => self.op_return()?,
+                OpCode::ReturnValue => self.op_returnvalue()?,
+                OpCode::Call => self.op_call()?,
+                OpCode::CallBuiltin => self.op_callbuiltin()?,
+                OpCode::GetLocal => self.op_getlocal()?,
+                OpCode::SetLocal => self.op_setlocal()?,
+                OpCode::GetGlobal => self.op_getglobal()?,
+                OpCode::SetGlobal => self.op_setglobal()?,
+                OpCode::GtLocalConst => self.op_gtlocalconst()?,
+                OpCode::GteLocalConst => self.op_gtelocalconst()?,
+                OpCode::LtLocalConst => self.op_ltlocalconst()?,
+                OpCode::LteLocalConst => self.op_ltelocalconst()?,
+                OpCode::EqLocalConst => self.op_eqlocalconst()?,
+                OpCode::NeqLocalConst => self.op_neqlocalconst()?,
+                OpCode::AddLocalConst => self.op_addlocalconst()?,
+                OpCode::SubtractLocalConst => self.op_subtractlocalconst()?,
+                OpCode::MultiplyLocalConst => self.op_multiplylocalconst()?,
+                OpCode::DivideLocalConst => self.op_dividelocalconst()?,
+                OpCode::ModuloLocalConst => self.op_modulolocalconst()?,
+                OpCode::Array => self.op_array()?,
+                OpCode::IndexGet => self.op_indexget()?,
+                OpCode::IndexSet => self.op_indexset()?,
+                OpCode::Halt => return self.op_halt(),
             }
         }
+    }
+}
+
+macro_rules! impl_binary_op_method {
+    ($name:tt, $op:tt) => {
+        #[inline(always)]
+        fn $name(&mut self) -> Result<(), Error> {
+            let right = self.pop();
+            let left = self.pop();
+            let result = left.$op(right, &mut self.gc)?;
+            self.push(result);
+            Ok(())
+        }
+    };
+}
+macro_rules! impl_binary_const_local_op_method {
+    ($self:expr, $op:tt) => {{
+        let local_idx = $self.read_u16();
+        let left = $self.get_local(local_idx);
+        let constant_idx = $self.read_u16();
+        let right = $self.constants[constant_idx as usize];
+        let result = left.$op(right, &mut $self.gc).unwrap();
+        $self.push(result);
+        Ok(())
+    }};
+}
+
+impl VM {
+    #[inline(always)]
+    fn op_const(&mut self) -> Result<(), Error> {
+        let idx = self.read_u16();
+        let value = self.constants[idx as usize];
+        self.push(value);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_setglobal(&mut self) -> Result<(), Error> {
+        let idx = self.read_u16() as usize;
+        let value = self.pop();
+        while self.globals.len() <= idx {
+            self.globals.push(Object::null());
+        }
+        self.globals[idx] = value;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_getglobal(&mut self) -> Result<(), Error> {
+        let idx = self.read_u16();
+        let value = self.globals[idx as usize];
+        self.push(value);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_setlocal(&mut self) -> Result<(), Error> {
+        let idx = self.read_u16();
+        let value = self.pop();
+        self.set_local(idx, value);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_getlocal(&mut self) -> Result<(), Error> {
+        let idx = self.read_u16();
+        let value = self.get_local(idx);
+        self.push(value);
+        Ok(())
+    }
+    // TODO: Make JUMP* opcodes relative?
+    #[inline(always)]
+    fn op_jump(&mut self) -> Result<(), Error> {
+        let pos = self.read_u16();
+        self.jump(pos);
+
+        // collect garbage on every jump instruction
+        // gc.run(&[&self.stack, &constants, &self.globals, &[final_result]]);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_jumpiffalse(&mut self) -> Result<(), Error> {
+        let condition = self.pop();
+        let evaluation = match condition.tag() {
+            Type::Bool => Ok(condition.as_bool()),
+            _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
+        }?;
+
+        let pos = self.read_u16();
+        if !evaluation {
+            self.jump(pos);
+        }
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_pop(&mut self) -> Result<(), Error> {
+        self.final_result = self.pop();
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_null(&mut self) -> Result<(), Error> {
+        self.push(Object::null());
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_true(&mut self) -> Result<(), Error> {
+        self.push(Object::bool(true));
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_false(&mut self) -> Result<(), Error> {
+        self.push(Object::bool(false));
+        Ok(())
+    }
+
+    impl_binary_op_method!(op_add, add);
+    impl_binary_op_method!(op_sub, sub);
+    impl_binary_op_method!(op_div, div);
+    impl_binary_op_method!(op_mul, mul);
+    impl_binary_op_method!(op_gt, gt);
+    impl_binary_op_method!(op_gte, gte);
+    impl_binary_op_method!(op_lt, lt);
+    impl_binary_op_method!(op_lte, lte);
+    impl_binary_op_method!(op_eq, eq);
+    impl_binary_op_method!(op_neq, neq);
+    impl_binary_op_method!(op_rem, rem);
+    impl_binary_op_method!(op_and, and);
+    impl_binary_op_method!(op_or, or);
+
+    #[inline(always)]
+    fn op_not(&mut self) -> Result<(), Error> {
+        let left = self.pop();
+        if left.tag() != Type::Bool {
+            return Err(Error::TypeError(format!(
+                "kan ! (niet) niet toepassen op objecten van type {}",
+                left.tag()
+            )));
+        }
+        let result = Object::bool(!left.as_bool());
+        self.push(result);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_negate(&mut self) -> Result<(), Error> {
+        let left = self.pop();
+        let result = match left.tag() {
+            Type::Float => unsafe { Object::float(-left.as_f64_unchecked(), &mut self.gc) },
+            Type::Int => Object::int(-left.as_int()),
+            _ => {
+                return Err(Error::TypeError(format!(
+                    "kan objecten met type {} niet omdraaien",
+                    left.tag()
+                )))
+            }
+        };
+        self.push(result);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_call(&mut self) -> Result<(), Error> {
+        let num_args = self.read_u8();
+        let base_pointer = self.stack.len() as u16 - 1 - num_args as u16;
+        let obj = self.pop();
+        if obj.tag() != Type::Function {
+            return Err(Error::TypeError(format!(
+                "object van type {} is not aanroepbaar",
+                obj.tag()
+            )));
+        }
+        let [ip, num_locals] = obj.as_function();
+
+        // Make room on the stack for any local variables defined inside this function
+        for _ in 0..num_locals - num_args as u32 {
+            self.push(Object::null());
+        }
+
+        self.pushframe(ip, base_pointer);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_callbuiltin(&mut self) -> Result<(), Error> {
+        let builtin = self.read_u8();
+        let num_args = self.read_u8() as usize;
+        let mut args = Vec::with_capacity(num_args);
+        for _ in 0..num_args {
+            args.push(self.pop());
+        }
+        args.reverse();
+        let builtin = unsafe { std::mem::transmute::<u8, Builtin>(builtin) };
+        let result = builtins::call(builtin, &args, &mut self.gc).unwrap();
+        self.push(result);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_returnvalue(&mut self) -> Result<(), Error> {
+        let result = self.pop();
+        self.popframe();
+        self.push(result);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_return(&mut self) -> Result<(), Error> {
+        self.popframe();
+        self.push(Object::null());
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn op_gtlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, gt)
+    }
+    #[inline(always)]
+    fn op_gtelocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, gte)
+    }
+    #[inline(always)]
+    fn op_ltlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, lt)
+    }
+    #[inline(always)]
+    fn op_ltelocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, lte)
+    }
+    #[inline(always)]
+    fn op_eqlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, eq)
+    }
+    #[inline(always)]
+    fn op_neqlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, neq)
+    }
+    #[inline(always)]
+    fn op_addlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, add)
+    }
+    #[inline(always)]
+    fn op_subtractlocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, sub)
+    }
+    #[inline(always)]
+    fn op_multiplylocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, mul)
+    }
+    #[inline(always)]
+    fn op_dividelocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, div)
+    }
+    #[inline(always)]
+    fn op_modulolocalconst(&mut self) -> Result<(), Error> {
+        impl_binary_const_local_op_method!(self, rem)
+    }
+
+    #[inline(always)]
+    fn op_array(&mut self) -> Result<(), Error> {
+        let length = self.read_u16();
+        let mut vec = Vec::with_capacity(length as usize);
+        for _ in 0..length {
+            vec.push(self.pop());
+        }
+        vec.reverse();
+        let obj = Object::array(vec, &mut self.gc);
+        self.push(obj);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_indexget(&mut self) -> Result<(), Error> {
+        let index = self.pop();
+        let left = self.pop();
+        let result = index_get(left, index, &mut self.gc)?;
+        self.push(result);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_indexset(&mut self) -> Result<(), Error> {
+        let value = self.pop();
+        let index = self.pop();
+        let left = self.pop();
+        let value = index_set(left, index, value)?;
+        self.push(value);
+        Ok(())
+    }
+    #[inline(always)]
+    fn op_halt(&mut self) -> Result<Object, Error> {
+        self.gc.untrace(self.final_result);
+        Ok(self.final_result)
     }
 }
 
