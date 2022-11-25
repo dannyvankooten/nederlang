@@ -251,7 +251,7 @@ fn test_function_vars() {
 
 #[test]
 fn test_named_functions() {
-    assert!(10 as u32 as i64 as u32 == 10);
+    assert!(10_u32 as i64 as u32 == 10);
     assert!(eval("stel a = 100; a();").is_err());
     assert!(eval("stel a = functie() { 1 }; a();").is_ok());
 
@@ -370,7 +370,8 @@ fn test_gc_negate_float() {
 
 #[test]
 fn test_gc_float() {
-    for (test, expected) in [("3.14 + 3.15", 3.14 + 3.15)] {
+    {
+        let (test, expected) = ("3.14 + 3.15", 3.14 + 3.15);
         let result = eval(test);
         assert!(result.is_ok());
 

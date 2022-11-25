@@ -106,7 +106,7 @@ impl VM {
     /// Performance: -25% over a regular call to `Vec::pop()`
     #[inline(always)]
     fn pop(&mut self) -> Object {
-        debug_assert!(self.stack.is_empty() == false);
+        debug_assert!(!self.stack.is_empty());
 
         // Safety: if the compiler and VM are implemented correctly, the stack will never be empty
         unsafe {
@@ -292,7 +292,7 @@ impl VM {
                 }?;
 
                     let pos = self.read_u16();
-                    if evaluation == false {
+                    if !evaluation {
                         self.jump(pos);
                     }
                 }
@@ -359,14 +359,14 @@ impl VM {
                     let [ip, num_locals] = obj.as_function();
 
                     // Make room on the stack for any local variables defined inside this function
-                    for _ in 0..num_locals as u32 - num_args as u32 {
+                    for _ in 0..num_locals - num_args as u32 {
                         self.push(Object::null());
                     }
 
                     self.pushframe(ip, base_pointer);
                 }
                 OpCode::CallBuiltin => {
-                    let builtin = self.read_u8() as u8;
+                    let builtin = self.read_u8();
                     let num_args = self.read_u8() as usize;
                     let mut args = Vec::with_capacity(num_args);
                     for _ in 0..num_args {
@@ -455,13 +455,13 @@ fn index_get(left: Object, index: Object, gc: &mut GC) -> Result<Object, Error> 
 fn index_get_array(obj: Object, mut index: isize) -> Result<Object, Error> {
     let array = obj.as_vec();
     if index < 0 {
-        index = array.len() as isize + index;
+        index += array.len() as isize;
     }
     let index = index as usize;
     if index >= array.len() {
-        return Err(Error::IndexError(format!(
-            "lijst index valt buiten de lijst"
-        )));
+        return Err(Error::IndexError(
+            "lijst index valt buiten de lijst".to_string(),
+        ));
     }
 
     Ok(array[index])
@@ -470,13 +470,13 @@ fn index_get_array(obj: Object, mut index: isize) -> Result<Object, Error> {
 fn index_get_string(obj: Object, mut index: isize, gc: &mut GC) -> Result<Object, Error> {
     let str = obj.as_str();
     if index < 0 {
-        index = str.chars().count() as isize + index;
+        index += str.chars().count() as isize;
     }
     let index = index as usize;
     if index >= str.len() {
-        return Err(Error::IndexError(format!(
-            "lijst index valt buiten de lijst"
-        )));
+        return Err(Error::IndexError(
+            "lijst index valt buiten de lijst".to_string(),
+        ));
     }
 
     let ch = str.chars().nth(index).unwrap();
@@ -507,13 +507,13 @@ fn index_set(mut left: Object, index: Object, value: Object) -> Result<Object, E
 
 fn index_set_array(array: &mut Vec<Object>, mut index: isize, value: Object) -> Result<(), Error> {
     if index < 0 {
-        index = array.len() as isize + index;
+        index += array.len() as isize;
     }
     let index = index as usize;
     if index >= array.len() {
-        return Err(Error::IndexError(format!(
-            "lijst index valt buiten de lijst"
-        )));
+        return Err(Error::IndexError(
+            "lijst index valt buiten de lijst".to_string(),
+        ));
     }
     array[index] = value;
     Ok(())
@@ -522,19 +522,19 @@ fn index_set_array(array: &mut Vec<Object>, mut index: isize, value: Object) -> 
 fn index_set_string(string: &mut String, mut index: isize, value: Object) -> Result<(), Error> {
     let strlen = string.chars().count();
     if index < 0 {
-        index = strlen as isize + index;
+        index += strlen as isize;
     }
     let index = index as usize;
     if index >= strlen {
-        return Err(Error::IndexError(format!(
-            "lijst index valt buiten de lijst"
-        )));
+        return Err(Error::IndexError(
+            "lijst index valt buiten de lijst".to_string(),
+        ));
     }
 
     if value.tag() != Type::String {
-        return Err(Error::TypeError(format!(
-            "kan geen niet-string invoegen op string object"
-        )));
+        return Err(Error::TypeError(
+            "kan geen niet-string invoegen op string object".to_string(),
+        ));
     }
 
     string.replace_range(

@@ -44,11 +44,11 @@ pub(crate) fn call(builtin: Builtin, args: &[Object], gc: &mut GC) -> Result<Obj
 /// Example:
 ///     print("Hallo {}!", "wereld") => prints "Hallo wereld" to stdout
 fn call_print(args: &[Object]) -> Result<Object, Error> {
-    if args.len() > 0 {
+    if !args.is_empty() {
         let mut args = args.iter();
         let mut format_str = args.next().unwrap().to_string();
 
-        while let Some(replacement) = args.next() {
+        for replacement in args {
             format_str = format_str.replacen("{}", &replacement.to_string(), 1);
         }
 
@@ -110,8 +110,8 @@ fn call_bool(args: &[Object]) -> Result<Object, Error> {
         Type::Bool => return Ok(args[0]),
         Type::Float => unsafe { args[0].as_f64_unchecked() > 0.00 },
         Type::Int => args[0].as_int() > 0,
-        Type::String => unsafe { args[0].as_str_unchecked().len() > 0 },
-        Type::Array => unsafe { args[0].as_vec_unchecked().len() > 0 },
+        Type::String => unsafe { !args[0].as_str_unchecked().is_empty() },
+        Type::Array => unsafe { !args[0].as_vec_unchecked().is_empty() },
         Type::Function => {
             return Err(Error::ArgumentError(format!(
                 "kan geen bool maken van een {}",

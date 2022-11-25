@@ -27,7 +27,7 @@ pub(crate) struct Context {
 impl Context {
     fn new(scope: Scope) -> Self {
         Context {
-            scope: scope,
+            scope,
             max_size: 0,
             symbols: vec![Vec::new()],
         }

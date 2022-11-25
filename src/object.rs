@@ -117,7 +117,7 @@ impl Object {
     /// Note that is up to the caller to ensure this pointer is of the correct type
     #[inline(always)]
     pub fn as_bool(self) -> bool {
-        ((self.0 as u8 >> VALUE_SHIFT_BITS) as u8) != 0
+        (self.0 as u8 >> VALUE_SHIFT_BITS) != 0
     }
 
     /// Returns the integer value of this object pointer
@@ -152,6 +152,9 @@ impl Object {
     }
 
     /// Returns the f64 value of this object pointer
+    ///
+    /// # Safety
+    ///
     /// The caller should ensure this pointer points to an actual Float type
     #[inline]
     pub unsafe fn as_f64_unchecked(self) -> f64 {
@@ -173,13 +176,16 @@ impl Object {
     }
 
     /// Returns the &str value of this object pointer
+    ///
+    /// # Safety
+    ///
     /// The caller should ensure this pointer points to an actual String type
     #[inline]
     pub unsafe fn as_str_unchecked(&self) -> &str {
         self.get::<String>().value.as_str()
     }
 
-    /// Returns a reference to the Vec<Pointer> value this pointer points to
+    /// Returns a reference to the Vec<Object> value this pointer points to
     /// Panics if object does not point to an Array
     #[inline]
     pub fn as_vec(&self) -> &Vec<Object> {
@@ -187,14 +193,17 @@ impl Object {
         unsafe { self.as_vec_unchecked() }
     }
 
-    /// Returns a reference to the Vec<Pointer> value this pointer points to
+    /// Returns a reference to the Vec<Object> value this pointer points to
+    ///
+    /// # Safety
+    ///
     /// The caller should ensure this pointer actually points to an Array
     #[inline]
     pub unsafe fn as_vec_unchecked(&self) -> &Vec<Object> {
-        Array::read(&self)
+        Array::read(self)
     }
 
-    /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
+    /// Returns a mutable reference to the Vec<Object> value this pointer points to
     /// Panics if object does not point to an Array
     #[inline]
     pub fn as_vec_mut(&mut self) -> &mut Vec<Object> {
@@ -202,7 +211,10 @@ impl Object {
         unsafe { self.as_vec_unchecked_mut() }
     }
 
-    /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
+    /// Returns a mutable reference to the Vec<Object> value this pointer points to
+    ///
+    /// # Safety
+    ///
     /// The caller should ensure this pointer actually points to an Array
     #[inline]
     pub unsafe fn as_vec_unchecked_mut(&mut self) -> &mut Vec<Object> {
@@ -572,8 +584,8 @@ mod tests {
         assert_eq!(Object::function(1, 1).tag(), Type::Function);
         assert_eq!(Object::function(1, 1).as_function(), [1, 1]);
         assert_eq!(
-            Object::function(1, 0xFFFF as u16).as_function(),
-            [1, 0xFFFF as u32]
+            Object::function(1, 0xFFFF_u16).as_function(),
+            [1, 0xFFFF_u32]
         );
         assert_eq!(
             Object::function(0xFFFFFFFF, 1).as_function(),
@@ -584,7 +596,7 @@ mod tests {
     #[test]
     fn test_object_null() {
         assert_eq!(Object::null().tag(), Type::Null);
-        assert!(Object::null().is_heap_allocated() == false);
+        assert!(!Object::null().is_heap_allocated());
     }
 
     #[test]
@@ -598,8 +610,8 @@ mod tests {
         assert_eq!(t.as_bool(), true);
         assert_eq!(f.as_bool(), false);
 
-        assert!(t.is_heap_allocated() == false);
-        assert!(f.is_heap_allocated() == false);
+        assert!(!t.is_heap_allocated());
+        assert!(!f.is_heap_allocated());
     }
 
     #[test]

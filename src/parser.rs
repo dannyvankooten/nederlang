@@ -108,7 +108,7 @@ impl<'a> Parser<'a> {
         let right = self.parse_expr(precedence)?;
         Ok(Expr::Infix {
             left: Box::new(left),
-            operator: operator,
+            operator,
             right: Box::new(right),
         })
     }

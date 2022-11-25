@@ -237,7 +237,7 @@ impl Compiler {
     fn compile_block_statement(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
         // if block statement does not contain any other statements or expressions
         // simply push a NULL onto the stack
-        if stmts.len() == 0 {
+        if stmts.is_empty() {
             self.emit_opcode(OpCode::Null);
             return Ok(());
         }
@@ -253,13 +253,13 @@ impl Compiler {
     fn compile_statement(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Expr(expr) => {
-                self.compile_expression(&expr)?;
+                self.compile_expression(expr)?;
                 self.emit_opcode(OpCode::Pop);
             }
             Stmt::Block(stmts) => self.compile_block_statement(stmts)?,
             Stmt::Let(name, value) => {
-                let symbol = self.symbols.define(&name);
-                self.compile_expression(&value)?;
+                let symbol = self.symbols.define(name);
+                self.compile_expression(value)?;
                 let op = if symbol.scope == Scope::Global {
                     OpCode::SetGlobal
                 } else {
@@ -270,7 +270,7 @@ impl Compiler {
             }
             Stmt::Return(expr) => {
                 // TODO: Allow expression to be omitted (needs work in parser first)
-                self.compile_expression(&expr)?;
+                self.compile_expression(expr)?;
                 self.emit_opcode(OpCode::ReturnValue);
             }
             Stmt::Break => {
@@ -280,7 +280,9 @@ impl Compiler {
                 self.emit_u16(JUMP_PLACEHOLDER);
                 let ctx = match self.loop_contexts.last_mut() {
                     Some(ctx) => ctx,
-                    None => return Err(Error::SyntaxError(format!("foutief gebruik van 'stop'"))),
+                    None => {
+                        return Err(Error::SyntaxError("foutief gebruik van 'stop'".to_string()))
+                    }
                 };
                 ctx.break_instructions.push(pos);
             }
@@ -289,9 +291,9 @@ impl Compiler {
 
                 let pos = match self.loop_contexts.iter().last() {
                     Some(ctx) => Ok(ctx.start),
-                    None => Err(Error::SyntaxError(format!(
-                        "foutief gebruik van 'volgende'"
-                    ))),
+                    None => Err(Error::SyntaxError(
+                        "foutief gebruik van 'volgende'".to_string(),
+                    )),
                 }?;
                 self.emit_opcode(OpCode::Jump);
                 self.emit_u16(pos.try_into().unwrap());
@@ -347,9 +349,7 @@ impl Compiler {
                     (Operator::Modulo, Scope::Local) => OpCode::ModuloLocalConst,
                     _ => {
                         // This is just for other part of compiler to signal it should emit a normal instruction sequence
-                        return Err(Error::ReferenceError(format!(
-                        "Optimized variant of this operator & scope type is not yet implemented."
-                    )));
+                        return Err(Error::ReferenceError("Optimized variant of this operator & scope type is not yet implemented.".to_string()));
                     }
                 };
 
@@ -391,7 +391,7 @@ impl Compiler {
                 self.emit_u16(idx);
             }
             Expr::Identifier(name) => {
-                let symbol = self.symbols.resolve(&name);
+                let symbol = self.symbols.resolve(name);
                 match symbol {
                     Some(symbol) => {
                         let opcode = if symbol.scope == Scope::Global {
@@ -410,7 +410,7 @@ impl Compiler {
                 }
             }
             Expr::Prefix { operator, right } => {
-                self.compile_expression(&*right)?;
+                self.compile_expression(right)?;
 
                 match operator {
                     Operator::Negate | Operator::Subtract => {
@@ -432,9 +432,9 @@ impl Compiler {
                 let name = match &**left {
                     Expr::Identifier(name) => name,
                     Expr::Index { left, index } => {
-                        self.compile_expression(&*left)?;
-                        self.compile_expression(&*index)?;
-                        self.compile_expression(&*right)?;
+                        self.compile_expression(left)?;
+                        self.compile_expression(index)?;
+                        self.compile_expression(right)?;
                         self.emit_opcode(OpCode::IndexSet);
                         return Ok(());
                     }
@@ -446,10 +446,10 @@ impl Compiler {
                     }
                 };
 
-                let symbol = self.symbols.resolve(&name);
+                let symbol = self.symbols.resolve(name);
                 match symbol {
                     Some(symbol) => {
-                        self.compile_expression(&*right)?;
+                        self.compile_expression(right)?;
 
                         match symbol.scope {
                             Scope::Global => {
@@ -483,7 +483,7 @@ impl Compiler {
                 match (&**left, &**right) {
                     (Expr::Identifier(name), Expr::Int { value })
                     | (Expr::Int { value }, Expr::Identifier(name)) => {
-                        let res = self.compile_const_var_infix_expression(&name, *value, &operator);
+                        let res = self.compile_const_var_infix_expression(name, *value, operator);
                         if res.is_ok() {
                             return res;
                         }
@@ -492,16 +492,16 @@ impl Compiler {
                 }
 
                 // If that failed because we haven't implemented a specialized instruction yet, compile it as a sequence of normal instructions
-                self.compile_expression(&*left)?;
-                self.compile_expression(&*right)?;
-                self.compile_operator(&operator);
+                self.compile_expression(left)?;
+                self.compile_expression(right)?;
+                self.compile_operator(operator);
             }
             Expr::If {
                 condition,
                 consequence,
                 alternative,
             } => {
-                self.compile_expression(&*condition)?;
+                self.compile_expression(condition)?;
                 let pos_jump_if_false = self.instructions.len();
                 self.emit_opcode(OpCode::JumpIfFalse);
                 self.emit_u16(JUMP_PLACEHOLDER);
@@ -539,7 +539,7 @@ impl Compiler {
                 self.loop_contexts
                     .push(LoopContext::new(self.instructions.len()));
                 let pos_before_condition = self.instructions.len();
-                self.compile_expression(&*condition)?;
+                self.compile_expression(condition)?;
 
                 let pos_jump_if_false = self.instructions.len();
                 self.emit_opcode(OpCode::JumpIfFalse);
@@ -574,8 +574,8 @@ impl Compiler {
                 parameters,
                 body,
             } => {
-                let symbol = if name != "" {
-                    Some(self.symbols.define(&name))
+                let symbol = if !name.is_empty() {
+                    Some(self.symbols.define(name))
                 } else {
                     None
                 };
@@ -587,7 +587,7 @@ impl Compiler {
                 // Compile function in a new scope
                 self.symbols.new_context();
                 for p in parameters {
-                    self.symbols.define(&p);
+                    self.symbols.define(p);
                 }
 
                 let pos_start_function = self.instructions.len();
@@ -642,7 +642,7 @@ impl Compiler {
                         break 'compile_call;
                     }
                 }
-                self.compile_expression(&*left)?;
+                self.compile_expression(left)?;
                 self.emit_opcode(OpCode::Call);
                 self.emit_u8(arguments.len().try_into().unwrap());
             }
@@ -656,8 +656,8 @@ impl Compiler {
             }
 
             Expr::Index { left, index } => {
-                self.compile_expression(&*left)?;
-                self.compile_expression(&*index)?;
+                self.compile_expression(left)?;
+                self.compile_expression(index)?;
                 self.emit_opcode(OpCode::IndexGet);
             }
         }
@@ -753,7 +753,7 @@ pub(crate) fn bytecode_to_human(code: &[u8], positions: bool) -> String {
         }
         str.push_str(&op.to_string());
 
-        if op.operands().len() > 0 {
+        if !op.operands().is_empty() {
             str.push('(');
         }
         for (i, width) in op.operands().iter().enumerate() {
@@ -773,7 +773,7 @@ pub(crate) fn bytecode_to_human(code: &[u8], positions: bool) -> String {
             };
             ip += width;
         }
-        if op.operands().len() > 0 {
+        if !op.operands().is_empty() {
             str.push(')');
         }
 
