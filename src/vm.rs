@@ -1,7 +1,7 @@
 use crate::builtins::{self, Builtin};
 use crate::compiler::{Bytecode, OpCode};
 use crate::gc::GC;
-use crate::object::{Error, Object, Type};
+use crate::object::{Error, FromString, FromVec, Object, Type};
 
 #[cfg(feature = "debug")]
 use std::io::Write;
@@ -405,7 +405,7 @@ impl VM {
                     }
                     vec.reverse();
                     // TODO: Re-use vector allocation here
-                    let obj = Object::array(&vec, gc);
+                    let obj = Object::array(vec, gc);
                     self.push(obj);
                 }
                 OpCode::IndexGet => {
@@ -480,11 +480,11 @@ fn index_get_string(obj: Object, mut index: isize, gc: &mut GC) -> Result<Object
     }
 
     let ch = str.chars().nth(index).unwrap();
-    let result = Object::from_string(ch.to_string(), gc);
+    let result = Object::string(ch.to_string(), gc);
     Ok(result)
 }
 
-fn index_set(left: Object, index: Object, value: Object) -> Result<Object, Error> {
+fn index_set(mut left: Object, index: Object, value: Object) -> Result<Object, Error> {
     if index.tag() != Type::Int {
         return Err(Error::TypeError(format!(
             "lijst index moet een integer zijn, geen {}",

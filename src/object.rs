@@ -69,6 +69,13 @@ impl Object {
         Self((raw as usize | t as usize) as _)
     }
 
+    /// Returns the type of this object pointer
+    #[inline(always)]
+    pub fn tag(self) -> Type {
+        // Safety: self.0 with TAG_MASK applied will always yield a correct Type
+        unsafe { std::mem::transmute((self.0 as usize & TAG_MASK) as u8) }
+    }
+
     /// Create a new null value
     #[inline(always)]
     pub fn null() -> Self {
@@ -89,7 +96,6 @@ impl Object {
     pub fn int(value: isize) -> Self {
         // assert there is no data loss because of the shift
         debug_assert_eq!(((value << VALUE_SHIFT_BITS) >> VALUE_SHIFT_BITS), value);
-
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Int)
     }
 
@@ -100,43 +106,11 @@ impl Object {
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
     }
 
-    /// Create a new (garbage-collected) String value
-    #[inline]
-    pub fn from_string(value: RString, gc: &mut GC) -> Self {
-        let ptr = String::from_string(value);
-        gc.trace(ptr);
-        ptr
-    }
-
-    /// Create a new (garbage-collected) String value
-    #[inline]
-    pub fn string(value: &str, gc: &mut GC) -> Self {
-        let ptr = String::from_str(value);
-        gc.trace(ptr);
-        ptr
-    }
-
-    /// Create a new (garbage-collected) Float value
     #[inline]
     pub fn float(value: f64, gc: &mut GC) -> Self {
         let ptr = Float::from_f64(value);
         gc.trace(ptr);
         ptr
-    }
-
-    /// Create a new (garbage-collected) Array value
-    #[inline]
-    pub fn array(value: &[Object], gc: &mut GC) -> Self {
-        let ptr = Array::from_slice(value);
-        gc.trace(ptr);
-        ptr
-    }
-
-    /// Returns the type of this object pointer
-    #[inline(always)]
-    pub fn tag(self) -> Type {
-        // Safety: self.0 with TAG_MASK applied will always yield a correct Type
-        unsafe { std::mem::transmute((self.0 as usize & TAG_MASK) as u8) }
     }
 
     /// Returns the boolean value of this object pointer
@@ -193,7 +167,7 @@ impl Object {
     }
 
     #[inline]
-    pub fn as_string_mut(&self) -> &mut RString {
+    pub fn as_string_mut(&mut self) -> &mut RString {
         assert_eq!(self.tag(), Type::String);
         unsafe { &mut self.get_mut::<String>().value }
     }
@@ -223,7 +197,7 @@ impl Object {
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
     /// Panics if object does not point to an Array
     #[inline]
-    pub fn as_vec_mut(&self) -> &mut Vec<Object> {
+    pub fn as_vec_mut(&mut self) -> &mut Vec<Object> {
         assert_eq!(self.tag(), Type::Array);
         unsafe { self.as_vec_unchecked_mut() }
     }
@@ -231,7 +205,7 @@ impl Object {
     /// Returns a mutable reference to the Vec<Pointer> value this pointer points to
     /// The caller should ensure this pointer actually points to an Array
     #[inline]
-    pub unsafe fn as_vec_unchecked_mut(&self) -> &mut Vec<Object> {
+    pub unsafe fn as_vec_unchecked_mut(&mut self) -> &mut Vec<Object> {
         &mut self.get_mut::<Array>().value
     }
 
@@ -288,6 +262,48 @@ impl Object {
         }
 
         self.free();
+    }
+}
+
+pub trait FromString<T> {
+    fn string(value: T, gc: &mut GC) -> Self;
+}
+
+impl FromString<RString> for Object {
+    fn string(value: RString, gc: &mut GC) -> Self {
+        let ptr = String::from_string(value);
+        gc.trace(ptr);
+        ptr
+    }
+}
+
+impl FromString<&str> for Object {
+    fn string(value: &str, gc: &mut GC) -> Self {
+        let ptr = String::from_string(value.to_string());
+        gc.trace(ptr);
+        ptr
+    }
+}
+
+pub trait FromVec<T> {
+    fn array(value: T, gc: &mut GC) -> Self;
+}
+
+impl FromVec<Vec<Object>> for Object {
+    /// Create a new (garbage-collected) Array value
+    fn array(value: Vec<Object>, gc: &mut GC) -> Self {
+        let ptr = Array::from_vec(value);
+        gc.trace(ptr);
+        ptr
+    }
+}
+
+impl FromVec<&[Object]> for Object {
+    /// Create a new (garbage-collected) Array value
+    fn array(value: &[Object], gc: &mut GC) -> Self {
+        let ptr = Array::from_slice(value);
+        gc.trace(ptr);
+        ptr
     }
 }
 
@@ -406,7 +422,7 @@ pub(crate) struct Header {
 
 impl Header {
     #[inline]
-    pub unsafe fn read(obj: &Object) -> &mut Header {
+    pub unsafe fn read(obj: &mut Object) -> &mut Header {
         obj.get_mut::<Self>()
     }
 }
@@ -456,10 +472,6 @@ impl String {
         obj.header.marked = false;
         init!(obj.value => value);
         ptr
-    }
-
-    fn from_str(value: &str) -> Object {
-        Self::from_string(value.to_string())
     }
 }
 

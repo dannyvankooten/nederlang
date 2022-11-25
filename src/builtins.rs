@@ -1,6 +1,6 @@
 use crate::{
     gc::GC,
-    object::{Error, Object, Type},
+    object::{Error, FromString, Object, Type},
 };
 
 #[repr(u8)]
@@ -68,7 +68,7 @@ fn call_type(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
         )));
     }
 
-    Ok(Object::string(&args[0].tag().to_string(), gc))
+    Ok(Object::string(args[0].tag().to_string(), gc))
 }
 
 /// Casts the given object to a string object
@@ -93,7 +93,7 @@ fn call_string(args: &[Object], gc: &mut GC) -> Result<Object, Error> {
             )))
         }
     };
-    Ok(Object::string(&t, gc))
+    Ok(Object::string(t.as_str(), gc))
 }
 
 /// Casts the given object to a bool object

@@ -1,12 +1,12 @@
-use std::fmt::Display;
-use std::fmt::Write;
-
 use crate::ast::*;
 use crate::builtins;
 use crate::gc::GC;
 use crate::object::Error;
+use crate::object::FromString;
 use crate::object::Object;
 use crate::symbols::*;
+use std::fmt::Display;
+use std::fmt::Write;
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -385,7 +385,7 @@ impl Compiler {
                 self.emit_u16(idx);
             }
             Expr::String { value } => {
-                let obj = Object::string(&value, &mut self.gc);
+                let obj = Object::string(value.as_str(), &mut self.gc);
                 let idx = self.add_constant(obj);
                 self.emit_opcode(OpCode::Const);
                 self.emit_u16(idx);

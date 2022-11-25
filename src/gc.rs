@@ -1,6 +1,6 @@
 use crate::object::{Header, Object, Type};
 
-// TODO: Change visibility of GC to crate-private
+// TODO: Change visibility of GC to crate-private (not directly possible because of pub Object type)
 pub struct GC {
     /// Vector of all currently alive heap-allocated objects in the universe
     objects: Vec<Object>,
@@ -10,7 +10,7 @@ impl GC {
     /// Create a new Garbage Collector to manage heap-allocated objects
     pub fn new() -> GC {
         Self {
-            objects: Vec::with_capacity(8),
+            objects: Vec::new(),
         }
     }
 
@@ -55,15 +55,15 @@ impl GC {
 
     /// Runs a full mark & sweep cycle
     /// Only objects in the given roots are kept alive
-    pub fn run(&mut self, roots: &[&[Object]]) {
+    pub fn run(&mut self, roots: &mut [&mut [Object]]) {
         // Don't traverse roots if we have no traced objects
         if self.objects.is_empty() {
             return;
         }
 
         // mark all reachable objects
-        for root in roots.iter() {
-            for obj in root.iter() {
+        for root in roots.iter_mut() {
+            for obj in root.iter_mut() {
                 mark(obj);
             }
         }
@@ -76,7 +76,7 @@ impl GC {
     pub fn sweep(&mut self) {
         let mut i = 0;
         while i < self.objects.len() {
-            let obj = self.objects[i];
+            let mut obj = self.objects[i];
 
             // Immediate values should not end up on the traced objects list
             debug_assert!(obj.is_heap_allocated());
@@ -84,7 +84,7 @@ impl GC {
             // Object is heap allocated
             // Read its header to check if its marked
             // If its marked, clear flag & continue
-            let mut header = unsafe { Header::read(&obj) };
+            let mut header = unsafe { Header::read(&mut obj) };
             if header.marked {
                 header.marked = false;
                 i += 1;
@@ -109,7 +109,7 @@ impl Drop for GC {
 
 /// Marks the given object as reachable
 #[inline]
-fn mark(o: &Object) {
+fn mark(o: &mut Object) {
     if !o.is_heap_allocated() {
         return;
     }
@@ -118,7 +118,7 @@ fn mark(o: &Object) {
     header.marked = true;
 
     if o.tag() == Type::Array {
-        for v in o.as_vec() {
+        for v in o.as_vec_mut() {
             mark(v);
         }
     }

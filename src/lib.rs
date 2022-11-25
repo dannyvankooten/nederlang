@@ -1,10 +1,10 @@
 mod ast;
 mod builtins;
+mod gc;
 mod lexer;
 mod symbols;
 
 pub mod compiler;
-pub mod gc;
 pub mod object;
 pub mod parser;
 pub mod vm;
