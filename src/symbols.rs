@@ -58,6 +58,7 @@ impl Context {
     }
 
     /// Resolves a symbol in this context along with its absolute index (relative to the context its top scope)
+    #[inline]
     fn resolve(&self, name: &str) -> Option<Symbol> {
         let mut abs_index = self.total_len();
         for scope in self.symbols.iter().rev() {
@@ -83,40 +84,34 @@ impl SymbolTable {
     }
 
     /// Returns a mutable reference to the current context
-    #[inline(always)]
     fn current_context(&mut self) -> &mut Context {
         self.contexts.last_mut().unwrap()
     }
 
     /// Create a new context to define symbols in.
     /// This will always be a local context (as there is only one global context).
-    #[inline]
     pub fn new_context(&mut self) {
         self.contexts.push(Context::new(Scope::Local));
     }
 
     /// Destroys the current context and returns the maximum number of symbols it had at some point in time.
-    #[inline]
     pub fn leave_context(&mut self) -> usize {
         self.contexts.pop().unwrap().max_size()
     }
 
     /// Enter a new scope in the current context
     /// For example, at the start of a block statement.
-    #[inline]
     pub fn enter_scope(&mut self) {
         self.current_context().symbols.push(Vec::new());
     }
 
     /// Leave scope in the current context.
     /// For example, at the end of a block statement.
-    #[inline]
     pub fn leave_scope(&mut self) {
         self.current_context().symbols.pop().unwrap();
     }
 
     /// Define a symbol in the current context (and current scope within that context).
-    #[inline]
     pub fn define(&mut self, name: &str) -> Symbol {
         self.current_context().define(name)
     }

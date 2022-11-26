@@ -61,9 +61,108 @@ impl<'a> Parser<'a> {
         self.current_token = self.tokenizer.next().unwrap_or(Token::Illegal);
     }
 
+    /// Assert current token is of the given type and skips it
+    #[inline]
+    fn skip(&mut self, t: Token) -> Result<(), ParseError> {
+        if self.current_token != t {
+            return Err(ParseError::SyntaxError(format!(
+                "onverwachte token. verwacchte {t:?}, maar kreeg {:?}",
+                self.current_token
+            )));
+        }
+        self.advance();
+        Ok(())
+    }
+
+    /// Skips the current token if it is of the given type
+    #[inline]
+    fn skip_optional(&mut self, t: Token) {
+        if self.current_token == t {
+            self.advance()
+        }
+    }
+
     /// Parses an operator token
     fn parse_operator(&mut self) -> Operator {
         Operator::from(self.current_token)
+    }
+
+    /// Parse an expression
+    #[inline]
+    fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
+        let mut left = match self.current_token {
+            Token::Int(s) => self.parse_int_expression(s),
+            Token::Float(s) => self.parse_float_expression(s),
+            Token::True => self.parse_bool_expression(true),
+            Token::False => self.parse_bool_expression(false),
+            Token::String(s) => self.parse_string_expression(s),
+            Token::OpenParen => {
+                self.advance();
+                let expr = self.parse_expr(Precedence::Lowest)?;
+                self.skip(Token::CloseParen)?;
+                expr
+            }
+            Token::If => self.parse_if_expr()?,
+            Token::Bang | Token::Minus => self.parse_prefix_expr()?,
+            Token::Identifier(name) => self.parse_ident(name),
+            Token::Func => self.parse_function_expr()?,
+            Token::While => self.parse_while_expr()?,
+            Token::OpenBracket => self.parse_array_expr()?,
+            _ => {
+                return Err(ParseError::SyntaxError(format!(
+                    "onverwachte token. verwachtte een expressie, maar kreeg {:?}",
+                    self.current_token
+                )))
+            }
+        };
+
+        // keep going
+        while self.current_token != Token::Semi && precedence < self.current_token.precedence() {
+            left = match self.current_token {
+                Token::Lt
+                | Token::Lte
+                | Token::Gt
+                | Token::Gte
+                | Token::Eq
+                | Token::Neq
+                | Token::Plus
+                | Token::Minus
+                | Token::Slash
+                | Token::Star
+                | Token::And
+                | Token::Or
+                | Token::Percent => self.parse_infix_expr(left)?,
+                Token::Assign => self.parse_assign_expr(left)?,
+                Token::OpenParen => self.parse_call_expr(left)?,
+                Token::OpenBracket => self.parse_index_expr(left)?,
+                _ => return Ok(left),
+            };
+        }
+
+        Ok(left)
+    }
+
+    /// Parse a single statement
+    #[inline]
+    fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
+        let stmt = match self.current_token {
+            Token::Declare => self.parse_decl_statement()?,
+            Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
+            Token::Return => self.parse_return_statement()?,
+            Token::Continue => {
+                self.advance();
+                Stmt::Continue
+            }
+            Token::Break => {
+                self.advance();
+                Stmt::Break
+            }
+            _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
+        };
+
+        self.skip_optional(Token::Semi);
+
+        Ok(stmt)
     }
 
     /// Parses OpAssign expressions, like a += 5
@@ -170,27 +269,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Assert current token is of the given type and skips it
-    #[inline]
-    fn skip(&mut self, t: Token) -> Result<(), ParseError> {
-        if self.current_token != t {
-            return Err(ParseError::SyntaxError(format!(
-                "onverwachte token. verwacchte {t:?}, maar kreeg {:?}",
-                self.current_token
-            )));
-        }
-        self.advance();
-        Ok(())
-    }
-
-    /// Skips the current token if it is of the given type
-    #[inline]
-    fn skip_optional(&mut self, t: Token) {
-        if self.current_token == t {
-            self.advance()
-        }
-    }
-
     #[inline]
     fn parse_int_expression(&mut self, strval: &str) -> Expr {
         self.advance();
@@ -272,7 +350,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    #[inline]
     fn parse_ident(&mut self, name: &str) -> Expr {
         let expr = Expr::Identifier(name.to_owned());
         self.advance();
@@ -355,61 +432,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse an expression
-    #[inline]
-    fn parse_expr(&mut self, precedence: Precedence) -> Result<Expr, ParseError> {
-        let mut left = match self.current_token {
-            Token::Int(s) => self.parse_int_expression(s),
-            Token::Float(s) => self.parse_float_expression(s),
-            Token::True => self.parse_bool_expression(true),
-            Token::False => self.parse_bool_expression(false),
-            Token::String(s) => self.parse_string_expression(s),
-            Token::OpenParen => {
-                self.advance();
-                let expr = self.parse_expr(Precedence::Lowest)?;
-                self.skip(Token::CloseParen)?;
-                expr
-            }
-            Token::If => self.parse_if_expr()?,
-            Token::Bang | Token::Minus => self.parse_prefix_expr()?,
-            Token::Identifier(name) => self.parse_ident(name),
-            Token::Func => self.parse_function_expr()?,
-            Token::While => self.parse_while_expr()?,
-            Token::OpenBracket => self.parse_array_expr()?,
-            _ => {
-                return Err(ParseError::SyntaxError(format!(
-                    "onverwachte token. verwachtte een expressie, maar kreeg {:?}",
-                    self.current_token
-                )))
-            }
-        };
-
-        // keep going
-        while self.current_token != Token::Semi && precedence < self.current_token.precedence() {
-            left = match self.current_token {
-                Token::Lt
-                | Token::Lte
-                | Token::Gt
-                | Token::Gte
-                | Token::Eq
-                | Token::Neq
-                | Token::Plus
-                | Token::Minus
-                | Token::Slash
-                | Token::Star
-                | Token::And
-                | Token::Or
-                | Token::Percent => self.parse_infix_expr(left)?,
-                Token::Assign => self.parse_assign_expr(left)?,
-                Token::OpenParen => self.parse_call_expr(left)?,
-                Token::OpenBracket => self.parse_index_expr(left)?,
-                _ => return Ok(left),
-            };
-        }
-
-        Ok(left)
-    }
-
     fn parse_decl_statement(&mut self) -> Result<Stmt, ParseError> {
         // skip Token::Declare
         self.advance();
@@ -440,29 +462,6 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Return(expr))
     }
 
-    /// Parse a single statement
-    #[inline]
-    fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
-        let stmt = match self.current_token {
-            Token::Declare => self.parse_decl_statement()?,
-            Token::OpenBrace => Stmt::Block(self.parse_block_statement()?),
-            Token::Return => self.parse_return_statement()?,
-            Token::Continue => {
-                self.advance();
-                Stmt::Continue
-            }
-            Token::Break => {
-                self.advance();
-                Stmt::Break
-            }
-            _ => Stmt::Expr(self.parse_expr(Precedence::Lowest)?),
-        };
-
-        self.skip_optional(Token::Semi);
-
-        Ok(stmt)
-    }
-
     /// Parse a block (surrounded by curly braces)
     /// Can be an unnamed block, function body, if consequence, etc.
     fn parse_block_statement(&mut self) -> Result<BlockStmt, ParseError> {
@@ -481,7 +480,7 @@ impl<'a> Parser<'a> {
 /// Parses the program string into an AST representation
 pub fn parse(program: &str) -> Result<BlockStmt, ParseError> {
     let mut parser = Parser::new(program);
-    let mut block = BlockStmt::with_capacity(64);
+    let mut block = BlockStmt::new();
 
     while parser.current_token != Token::Illegal {
         block.push(parser.parse_statement()?);

@@ -100,7 +100,6 @@ impl Object {
     }
 
     /// Create a new function value
-    #[inline]
     pub fn function(ip: u32, num_locals: u16) -> Self {
         let value = ((ip as isize) << 16) | num_locals as isize;
         Self::with_type((value << VALUE_SHIFT_BITS) as _, Type::Function)
@@ -564,6 +563,7 @@ impl Display for Type {
 }
 
 /// Allocate a chunk of memory with the given layout
+#[inline]
 fn allocate(layout: Layout) -> *mut u8 {
     // Safety: we only call this function for types with a non-zero layout
     let ptr = unsafe { alloc(layout) };

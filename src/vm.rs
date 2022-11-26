@@ -85,7 +85,7 @@ impl VM {
     }
 
     /// Sets the instruction pointer to the given value
-    #[inline]
+    #[inline(always)]
     fn jump(&mut self, ip: u16) {
         self.ip = ip as usize;
     }
@@ -286,13 +286,12 @@ impl VM {
                 }
                 OpCode::JumpIfFalse => {
                     let condition = self.pop();
-                    let evaluation = match condition.tag() {
-                    Type::Bool => Ok(condition.as_bool()),
-                    _ => Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag()))),
-                }?;
+                    if condition.tag() != Type::Bool {
+                        return Err(Error::TypeError(format!("kan object met type {} niet gebruiken als voorwaarde. Gebruik evt. bool() om te type casten naar boolean.", condition.tag())));
+                    }
 
                     let pos = self.read_u16();
-                    if !evaluation {
+                    if !condition.as_bool() {
                         self.jump(pos);
                     }
                 }
