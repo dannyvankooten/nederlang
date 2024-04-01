@@ -173,7 +173,7 @@ impl VM {
         self.frames[0].base_pointer = 0;
 
         // Keep your friends close
-        let constants = code.constants;
+        let mut constants = code.constants;
         let mut final_result = Object::null();
 
         // Construct a new garbage collector
@@ -280,9 +280,6 @@ impl VM {
                 OpCode::Jump => {
                     let pos = self.read_u16();
                     self.jump(pos);
-
-                    // collect garbage on every jump instruction
-                    // gc.run(&[&self.stack, &constants, &self.globals, &[final_result]]);
                 }
                 OpCode::JumpIfFalse => {
                     let condition = self.pop();
@@ -379,10 +376,26 @@ impl VM {
                 OpCode::ReturnValue => {
                     let result = self.pop();
                     self.popframe();
+
+                    gc.run([
+                        self.stack.as_mut_slice(),
+                        constants.as_mut_slice(),
+                        self.globals.as_mut_slice(),
+                        [final_result, result].as_mut(),
+                    ].as_mut_slice());
+
                     self.push(result);
                 }
                 OpCode::Return => {
                     self.popframe();
+
+                    gc.run([
+                        self.stack.as_mut_slice(),
+                        constants.as_mut_slice(),
+                        self.globals.as_mut_slice(),
+                        [final_result].as_mut(),
+                    ].as_mut_slice());
+
                     self.push(Object::null());
                 }
                 OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),
