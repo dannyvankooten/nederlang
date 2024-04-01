@@ -426,21 +426,7 @@ impl Object {
     impl_logical!(or, ||);
 }
 
-#[repr(C)]
-pub(crate) struct Header {
-    pub(crate) marked: bool,
-}
-
-impl Header {
-    #[inline]
-    pub unsafe fn read(obj: &mut Object) -> &mut Header {
-        obj.get_mut::<Self>()
-    }
-}
-
-#[repr(C)]
 struct Float {
-    header: Header,
     value: f64,
 }
 
@@ -459,15 +445,12 @@ impl Float {
     fn from_f64(value: f64) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Float);
         let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
         init!(obj.value => value );
         ptr
     }
 }
 
-#[repr(C)]
 struct String {
-    header: Header,
     value: RString,
 }
 
@@ -480,15 +463,12 @@ impl String {
     fn from_string(value: RString) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::String);
         let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
         init!(obj.value => value);
         ptr
     }
 }
 
-#[repr(C)]
 struct Array {
-    header: Header,
     value: Vec<Object>,
 }
 
@@ -506,7 +486,6 @@ impl Array {
     fn from_vec(vec: Vec<Object>) -> Object {
         let ptr = Object::with_type(allocate(Layout::new::<Self>()), Type::Array);
         let obj = unsafe { ptr.get_mut::<Self>() };
-        obj.header.marked = false;
         init!(obj.value => vec);
         ptr
     }
