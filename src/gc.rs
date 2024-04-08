@@ -63,15 +63,15 @@ impl GC {
 
     /// Runs a full mark & sweep cycle
     /// Only objects in the given roots are kept alive
-    pub fn run(&mut self, roots: &mut [&mut [Object]]) {
+    pub fn run(&mut self, roots: &[&[Object]]) {
         // Don't traverse roots if we have no traced objects
         if self.objects.is_empty() {
             return;
         }
 
         // Mark all reachable objects
-        for root in roots.iter_mut() {
-            for obj in root.iter_mut() {
+        for root in roots.iter() {
+            for obj in root.iter() {
                 self.mark(obj);
             }
         }
@@ -123,7 +123,7 @@ impl GC {
 
     /// Marks the given object as reachable
     #[inline(always)]
-    fn mark(&mut self, o: &mut Object) {
+    fn mark(&mut self, o: &Object) {
         if !o.is_heap_allocated() {
             return;
         }
@@ -139,7 +139,7 @@ impl GC {
         if o.tag() == Type::Array {
             // Safety: we already checked the type.
             unsafe {
-                for v in o.as_vec_unchecked_mut() {
+                for v in o.as_vec_unchecked() {
                     self.mark(v);
                 }
             }
@@ -153,4 +153,3 @@ impl Drop for GC {
         self.destroy();
     }
 }
-

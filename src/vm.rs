@@ -173,7 +173,7 @@ impl VM {
         self.frames[0].base_pointer = 0;
 
         // Keep your friends close
-        let mut constants = code.constants;
+        let constants = code.constants;
         let mut final_result = Object::null();
 
         // Construct a new garbage collector
@@ -377,24 +377,24 @@ impl VM {
                     let result = self.pop();
                     self.popframe();
 
-                    gc.run([
-                        self.stack.as_mut_slice(),
-                        constants.as_mut_slice(),
-                        self.globals.as_mut_slice(),
-                        [final_result, result].as_mut(),
-                    ].as_mut_slice());
+                    gc.run(&[
+                        self.stack.as_slice(),
+                        constants.as_slice(),
+                        self.globals.as_slice(),
+                        &[final_result, result],
+                    ]);
 
                     self.push(result);
                 }
                 OpCode::Return => {
                     self.popframe();
 
-                    gc.run([
-                        self.stack.as_mut_slice(),
-                        constants.as_mut_slice(),
-                        self.globals.as_mut_slice(),
-                        [final_result].as_mut(),
-                    ].as_mut_slice());
+                    gc.run(&[
+                        self.stack.as_slice(),
+                        constants.as_slice(),
+                        self.globals.as_slice(),
+                        &[final_result],
+                    ]);
 
                     self.push(Object::null());
                 }
