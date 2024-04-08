@@ -1,9 +1,6 @@
 use crate::object::{Object, Type};
 use bitvec::prelude as bv;
 
-/// How many spare items to keep in the objects list after a sweep?
-const SHRINK_TO_FIT_THRESH: usize = 64;
-
 // TODO: Change visibility of GC to crate-private (not directly possible because of pub Object type)
 pub struct GC {
     /// Vector of all currently alive heap-allocated objects in the universe
@@ -73,7 +70,7 @@ impl GC {
             return;
         }
 
-        debug_assert!(self.mark_bitmap.len() >= self.objects.len());
+        self.mark_bitmap.clear();
 
         // Mark all reachable objects
         for root in roots.iter() {
@@ -84,47 +81,19 @@ impl GC {
 
         // Sweep all unreachable objects
         self.sweep();
-
-        self.mark_bitmap.clear();
     }
 
     /// Sweep all unmarked objects
     pub fn sweep(&mut self) {
-        let sweep_range = |objects: &mut Vec<Object>, min, max| {
-            for collected in objects.drain(min..max) {
-                debug_assert!(collected.is_heap_allocated());
-                collected.free();
-            }
-        };
-
-        let mut last_marked_found: usize;
-        // We mark only the index of a reachable object, so sweep backwards to
-        // preserve them when the sweep range is drained from the objects vector.
-        let mut iter = self.mark_bitmap.iter_ones().rev();
-        if let Some(last) = iter.next() {
-            last_marked_found = last;
-
-            for marked in iter {
-                if marked < last_marked_found {
-                    sweep_range(&mut self.objects, marked + 1, last_marked_found);
-                    last_marked_found = marked;
-                }
-            }
-        } else {
-            // No reachable objects were found.  Collect all the things!
-            last_marked_found = self.objects.len();
+        // Sweep in reverse unmarked order to preserve the index as
+        // elements are removed from the objects vector.
+        for unmarked in self.mark_bitmap.iter_zeros().rev() {
+            let object = self.objects.swap_remove(unmarked);
+            debug_assert!(object.is_heap_allocated());
+            object.free();
         }
 
-        // If 0 wasn't marked, we need to sweep from the first to the last one we found.
-        if last_marked_found != 0 {
-            sweep_range(&mut self.objects, 0, last_marked_found)
-        }
-
-        // Draining won't resize the allocation so try to curb it if it goes above
-        // a threshold.
-        if self.objects.capacity() - self.objects.len() > SHRINK_TO_FIT_THRESH {
-            self.objects.shrink_to_fit();
-        }
+        self.mark_bitmap.truncate(self.objects.len());
     }
 
     /// Marks the given object as reachable
