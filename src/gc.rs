@@ -140,14 +140,27 @@ impl GC {
             object_ptr.offset_from(universe_ptr) as usize
         };
         debug_assert!(index < self.objects.len());
-        self.mark_bitmap.set(index, true);
 
         if o.tag() == Type::Array {
-            // Safety: we already checked the type.
+            // Safety: we know the size of mark_bitmap.
             unsafe {
-                for v in o.as_vec_unchecked() {
-                    self.mark(v);
+                // No need to mark recursively on arrays if this one was
+                // already marked (e.g. because the same object was found
+                // in multiple places such as the stack and the result of
+                // a function call).
+                if !self.mark_bitmap.get_unchecked(index) {
+                    self.mark_bitmap.set_unchecked(index, true);
+
+                    // Safety: we already checked the type.
+                    for v in o.as_vec_unchecked() {
+                        self.mark(v);
+                    }
                 }
+            }
+        } else {
+            unsafe {
+                // Safety: we know the size of mark_bitmap.
+                self.mark_bitmap.set_unchecked(index, true);
             }
         }
     }
