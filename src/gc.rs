@@ -26,6 +26,7 @@ impl GC {
     pub fn maybe_trace(&mut self, o: Object) {
         if o.is_heap_allocated() {
             self.objects.push(o);
+            self.mark_bitmap.reserve(1);
         }
     }
 
@@ -33,6 +34,7 @@ impl GC {
     #[inline]
     pub fn trace(&mut self, o: Object) {
         self.objects.push(o);
+        self.mark_bitmap.reserve(1);
     }
 
     /// Removes the given object (and everything it refers) from this garbage collector so it is no longer managed by it
@@ -52,6 +54,8 @@ impl GC {
                     }
                 }
             }
+
+            self.mark_bitmap.truncate(self.objects.len());
         }
     }
 
@@ -68,6 +72,8 @@ impl GC {
         if self.objects.is_empty() {
             return;
         }
+
+        debug_assert!(self.mark_bitmap.len() >= self.objects.len());
 
         // Mark all reachable objects
         for root in roots.iter() {
