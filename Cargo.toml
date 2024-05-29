@@ -6,8 +6,6 @@ edition = "2021"
 [features]
 debug = []
 
-[dependencies]
-
 [dev-dependencies]
 criterion =  {version = "0.3", default-features = false }
 
@@ -30,3 +28,6 @@ harness = false
 [[bench]]
 name = "bench_arithmetic"
 harness = false
+
+[dependencies]
+bitvec = "1.0.1"

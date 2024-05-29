@@ -280,9 +280,6 @@ impl VM {
                 OpCode::Jump => {
                     let pos = self.read_u16();
                     self.jump(pos);
-
-                    // collect garbage on every jump instruction
-                    // gc.run(&[&self.stack, &constants, &self.globals, &[final_result]]);
                 }
                 OpCode::JumpIfFalse => {
                     let condition = self.pop();
@@ -379,10 +376,26 @@ impl VM {
                 OpCode::ReturnValue => {
                     let result = self.pop();
                     self.popframe();
+
+                    gc.run(&[
+                        self.stack.as_slice(),
+                        constants.as_slice(),
+                        self.globals.as_slice(),
+                        &[final_result, result],
+                    ]);
+
                     self.push(result);
                 }
                 OpCode::Return => {
                     self.popframe();
+
+                    gc.run(&[
+                        self.stack.as_slice(),
+                        constants.as_slice(),
+                        self.globals.as_slice(),
+                        &[final_result],
+                    ]);
+
                     self.push(Object::null());
                 }
                 OpCode::GtLocalConst => impl_binary_const_local_op_method!(gt),

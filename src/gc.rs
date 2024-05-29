@@ -1,9 +1,13 @@
-use crate::object::{Header, Object, Type};
+use crate::object::{Object, Type};
+use bitvec::prelude as bv;
 
 // TODO: Change visibility of GC to crate-private (not directly possible because of pub Object type)
 pub struct GC {
     /// Vector of all currently alive heap-allocated objects in the universe
     objects: Vec<Object>,
+
+    /// All marked objects during a run.
+    mark_bitmap: bv::BitVec,
 }
 
 impl GC {
@@ -11,6 +15,7 @@ impl GC {
     pub fn new() -> GC {
         Self {
             objects: Vec::new(),
+            mark_bitmap: bv::BitVec::new(),
         }
     }
 
@@ -18,6 +23,7 @@ impl GC {
     pub fn maybe_trace(&mut self, o: Object) {
         if o.is_heap_allocated() {
             self.objects.push(o);
+            self.mark_bitmap.reserve(1);
         }
     }
 
@@ -25,6 +31,7 @@ impl GC {
     #[inline]
     pub fn trace(&mut self, o: Object) {
         self.objects.push(o);
+        self.mark_bitmap.reserve(1);
     }
 
     /// Removes the given object (and everything it refers) from this garbage collector so it is no longer managed by it
@@ -44,6 +51,8 @@ impl GC {
                     }
                 }
             }
+
+            self.mark_bitmap.truncate(self.objects.len());
         }
     }
 
@@ -55,47 +64,73 @@ impl GC {
 
     /// Runs a full mark & sweep cycle
     /// Only objects in the given roots are kept alive
-    pub fn run(&mut self, roots: &mut [&mut [Object]]) {
+    pub fn run(&mut self, roots: &[&[Object]]) {
         // Don't traverse roots if we have no traced objects
         if self.objects.is_empty() {
             return;
         }
 
-        // mark all reachable objects
-        for root in roots.iter_mut() {
-            for obj in root.iter_mut() {
-                mark(obj);
+        self.mark_bitmap.clear();
+
+        // Mark all reachable objects
+        for root in roots.iter() {
+            for obj in root.iter() {
+                self.mark(obj);
             }
         }
 
-        // sweep unmarked objects
+        // Sweep all unreachable objects
         self.sweep();
     }
 
     /// Sweep all unmarked objects
     pub fn sweep(&mut self) {
-        let mut i = 0;
-        while i < self.objects.len() {
-            let mut obj = self.objects[i];
+        // Sweep in reverse unmarked order to preserve the index as
+        // elements are removed from the objects vector.
+        for unmarked in self.mark_bitmap.iter_zeros().rev() {
+            let object = self.objects.swap_remove(unmarked);
+            debug_assert!(object.is_heap_allocated());
+            object.free();
+        }
 
-            // Immediate values should not end up on the traced objects list
-            debug_assert!(obj.is_heap_allocated());
+        self.mark_bitmap.truncate(self.objects.len());
+    }
 
-            // Object is heap allocated
-            // Read its header to check if its marked
-            // If its marked, clear flag & continue
-            let mut header = unsafe { Header::read(&mut obj) };
-            if header.marked {
-                header.marked = false;
-                i += 1;
-                continue;
+    /// Marks the given object as reachable
+    #[inline(always)]
+    fn mark(&mut self, o: &Object) {
+        if !o.is_heap_allocated() {
+            return;
+        }
+
+        let index = unsafe {
+            let object_ptr: *mut Object = o.as_ptr().cast();
+            let universe_ptr: *const Object = self.objects.as_ptr().cast();
+            object_ptr.offset_from(universe_ptr) as usize
+        };
+        debug_assert!(index < self.objects.len());
+
+        if o.tag() == Type::Array {
+            // Safety: we know the size of mark_bitmap.
+            unsafe {
+                // No need to mark recursively on arrays if this one was
+                // already marked (e.g. because the same object was found
+                // in multiple places such as the stack and the result of
+                // a function call).
+                if !self.mark_bitmap.get_unchecked(index) {
+                    self.mark_bitmap.set_unchecked(index, true);
+
+                    // Safety: we already checked the type.
+                    for v in o.as_vec_unchecked() {
+                        self.mark(v);
+                    }
+                }
             }
-
-            // Remove object from tracing list
-            self.objects.swap_remove(i);
-
-            // Drop and deallocate object
-            obj.free();
+        } else {
+            unsafe {
+                // Safety: we know the size of mark_bitmap.
+                self.mark_bitmap.set_unchecked(index, true);
+            }
         }
     }
 }
@@ -104,22 +139,5 @@ impl GC {
 impl Drop for GC {
     fn drop(&mut self) {
         self.destroy();
-    }
-}
-
-/// Marks the given object as reachable
-#[inline]
-fn mark(o: &mut Object) {
-    if !o.is_heap_allocated() {
-        return;
-    }
-
-    let mut header = unsafe { Header::read(o) };
-    header.marked = true;
-
-    if o.tag() == Type::Array {
-        for v in o.as_vec_mut() {
-            mark(v);
-        }
     }
 }
