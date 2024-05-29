@@ -4,8 +4,7 @@ use wasm_bindgen::prelude::*;
 extern crate nederlang;
 
 use nederlang::object::Error;
-use nederlang::object::{Object, Type};
-use nederlang::vm::run_str;
+use nederlang::eval;
 use std::sync::Arc;
 
 #[wasm_bindgen(getter_with_clone)]
@@ -18,7 +17,8 @@ pub struct NlResponse {
 pub fn nederlang_eval(code: &str) -> NlResponse {
     std::io::set_output_capture(Some(Default::default()));
     
-    let program_result = run_str(code);
+
+    let program_result = eval(code);
 
     let captured = std::io::set_output_capture(None).unwrap();
     let captured = Arc::try_unwrap(captured).unwrap();
